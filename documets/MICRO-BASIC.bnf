@@ -1,5 +1,5 @@
 ; =============================================================================
-; MICRO-BASIC 2.1 - Backus-Naur Form Grammar
+; ENHANCED MICRO-BASIC 2.2 - Backus-Naur Form Grammar
 ;
 ; Notation:
 ;   <rule>      ::= definition
@@ -175,11 +175,21 @@
                   | "=" | "<>" | "<=" | "<" | ">=" | ">"
 <high-op>       ::= "*" | "/" | "%" | "&" | "|" | "^"
 
-<num-value>     ::= <digits>               ; integer literal
+<num-value>     ::= <num-literal>             ; integer literal (see below)
                   | <numvar>
                   | <arrvar>
                   | "(" <num-expr> ")"
                   | <num-function>
+
+; Numeric literals
+; Plain decimal is signed; # and @ prefixes allow hex and unsigned input.
+<num-literal>   ::= <digits>                       ; signed decimal  e.g. 255, -128
+                  | "#" <hex-digits>               ; hexadecimal     e.g. #FF, #1A2B
+                  | "@" <digits>                   ; unsigned decimal e.g. @65535
+
+<hex-digits>    ::= <hex-digit> { <hex-digit> }
+<hex-digit>     ::= <digit> | "A" | "B" | "C" | "D" | "E" | "F"
+                            | "a" | "b" | "c" | "d" | "e" | "f"
 
 ; Numeric functions
 <num-function>  ::= "ABS(" <num-expr> ")"
@@ -201,6 +211,8 @@
 
 <str-function>  ::= "CHR$(" <num-expr> ")"
                   | "STR$(" <num-expr> ")"
+                  | "HEX$(" <num-expr> ")"         ; unsigned hex string  e.g. FF, 1A2B
+                  | "UNS$(" <num-expr> ")"         ; unsigned decimal string  e.g. 65535
 
 <str-literal>   ::= '"' { <any-char-except-quote> } '"'
 
@@ -213,6 +225,11 @@
 ; Bitwise:      &  |  ^  !  (! is unary NOT)
 ; Comparison:   =  <>  <  <=  >  >=   (result: 1=true, 0=false)
 ; String:       +  (concatenation),  =  <>  (comparison)
+
+; Numeric literal prefixes:
+;   #xxxx   hexadecimal    e.g. #FF #1A2B
+;   @dddd   unsigned dec   e.g. @65535 @32768
+;   dddd    signed dec     e.g. 255 -128  (unchanged)
 
 
 ; =============================================================================

@@ -1,5 +1,5 @@
 /*
- * MICRO-BASIC 2.1
+ * ENHANCED MICRO-BASIC 2.2
  *
  * A small INTEGER BASIC interpreter originally written by Dave Dunfield,
  * subsequently ported to MICRO-C, then modernized for GCC / ia16-elf-gcc
@@ -56,15 +56,22 @@
  *   !                         Unary bitwise NOT
  *   Comparison operators evaluate to 1 (true) or 0 (false).
  *
+ * Numeric literal prefixes (Enhanced Micro-Basic):
+ *   #xxxx                     Hexadecimal  e.g. #FF, #1A2B
+ *   @dddd                     Unsigned decimal  e.g. @65535, @32768
+ *   (none)                    Signed decimal  e.g. 255, -128
+ *
  * Functions:
  *   ABS(n)     Absolute value
  *   ASC(s)     ASCII value of first character
  *   CHR$(n)    Single character from ASCII value
+ *   HEX$(n)    Convert number to uppercase hex string (e.g. FF, 1A2B)
  *   INP(port)  Read I/O port
  *   KEY()      Non-blocking keyboard test
  *   NUM(s)     Convert string to number
  *   RND(n)     Random number 0..n-1
  *   STR$(n)    Convert number to string
+ *   UNS$(n)    Convert number to unsigned decimal string (e.g. 65535)
  *
  * Copyright 1982-2003 Dave Dunfield  -  all rights reserved.
  * Permission granted for personal (non-commercial) use only.
@@ -92,6 +99,23 @@
  *   -DSMALL_TARGET          enables conservative defaults for 64 KB targets
  *   Individual overrides:   -DNUM_VAR=52 -DCT_DEPTH=12 -DSA_SIZE=32 etc.
  */
+
+/* =======================================================================
+ * Version identification
+ *
+ * Bump FORK_VER_MINOR on each Enhanced Micro-Basic release.
+ * FORK_VER_MAJOR resets FORK_VER_MINOR to 0.
+ * BASE_VER_* tracks the upstream Dunfield/modernisation version being
+ * forked from — update only when rebasing on a new upstream drop.
+ *
+ * The banner in main() reads exclusively from these defines.
+ * Nothing else in the source should contain a version number string.
+ * ======================================================================= */
+#define FORK_NAME        "Enhanced Micro-Basic"
+#define FORK_VER_MAJOR   2
+#define FORK_VER_MINOR   2
+#define BASE_VER_STR     "Micro-Basic 2.1"
+#define BUILD_YEAR       "2026"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -438,6 +462,8 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #define RND    53
 #define KEY    54
 #define INP    55
+#define HEX    56   /* HEX$(n) - format bint as uppercase hex string        */
+#define UNS    57   /* UNS$(n) - format bint as unsigned decimal string     */
 
 /* Pseudo-command: RUN without clearing variables (used by LOAD-in-program) */
 #define RUN1   99
@@ -455,6 +481,7 @@ static const char * const RODATA reserved_words[] = {
     "+", "-", "*", "/", "%", "&", "|", "^",
     "=", "<>", "<=", "<", ">=", ">",
     "CHR$(", "STR$(", "ASC(", "ABS(", "NUM(", "RND(", "KEY(", "INP(",
+    "HEX$(", "UNS$(",
     NULL
 };
 
@@ -652,15 +679,56 @@ static ubint lookup(const char * const RODATA table[])
 }
 
 /* =======================================================================
- * get_num() - parse an unsigned decimal integer from cmdptr
+ * get_num() - parse a numeric literal from cmdptr.
+ *
+ * TODO(literals): Dunfield-style prefix notation.
+ *   #xxxx  hexadecimal   e.g. #FF, #1A2B
+ *   @dddd  unsigned dec  e.g. @65535, @32768
+ *   dddd   signed dec    unchanged (no prefix)
+ *
+ * All paths return ubint; the caller in get_value() casts to bint.
+ * Storage stays int16_t throughout -- overflow calls error(0).
+ * Invalid digits for the active base also call error(0).
+ *
+ * Plain decimal (no prefix) is unchanged -- callers that parse line
+ * numbers, port numbers, etc. only ever see digits, never a prefix,
+ * so they are unaffected.
  * ======================================================================= */
 static ubint get_num(void)
 {
     ubint value = 0;
     char  c;
-    while (isdigit((unsigned char)(c = *cmdptr))) {
+
+    c = *cmdptr;
+
+    if (c == '#') {                         /* --- hexadecimal --- */
         ++cmdptr;
-        value = (ubint)(value * 10 + (ubint)(c - '0')); }
+        if (!isxdigit((unsigned char)*cmdptr)) error(0);
+        while (isxdigit((unsigned char)(c = *cmdptr))) {
+            ubint digit;
+            ++cmdptr;
+            if      (c >= '0' && c <= '9') digit = (ubint)(c - '0');
+            else if (c >= 'a' && c <= 'f') digit = (ubint)(c - 'a' + 10);
+            else                           digit = (ubint)(c - 'A' + 10);
+            if (value > (ubint)0x0FFF) error(0);   /* would overflow ubint */
+            value = (ubint)((value << 4) | digit); }
+
+    } else if (c == '@') {                  /* --- unsigned decimal --- */
+        ubint tmp;
+        ++cmdptr;
+        if (!isdigit((unsigned char)*cmdptr)) error(0);
+        while (isdigit((unsigned char)(c = *cmdptr))) {
+            ++cmdptr;
+            tmp = (ubint)(value * 10 + (ubint)(c - '0'));
+            if (tmp < value) error(0);      /* wrapped: value > 65535        */
+            value = tmp; }
+
+    } else {                                /* --- plain signed decimal --- */
+        while (isdigit((unsigned char)(c = *cmdptr))) {
+            ++cmdptr;
+            value = (ubint)(value * 10 + (ubint)(c - '0')); }
+    }
+
     return value;
 }
 
@@ -1325,7 +1393,9 @@ static bint get_value(void)
     bint  value = 0;
     tok_t c     = skip_blank();
 
-    if (isdigit((unsigned char)c)) {
+    if (isdigit((unsigned char)c) || c == '#' || c == '@') {
+        /* TODO(literals): plain decimal OR prefixed literal (#hex, @udec).
+         * get_num() reads the prefix itself from *cmdptr.                  */
         expr_type = 0;
         value     = (bint)get_num();
     } else {
@@ -1417,6 +1487,14 @@ static void get_char_value(char *ptr)
     } else if (c == TOKEN(STR)) {       /* STR$(n)                          */
         num_string(eval_sub(), ptr);
         if (expr_type) error(4);
+    } else if (c == TOKEN(HEX)) {       /* HEX$(n) -> uppercase hex string  */
+        ubint uval = (ubint)eval_sub();
+        if (expr_type) error(4);
+        sprintf(ptr, "%X", (unsigned)uval);
+    } else if (c == TOKEN(UNS)) {       /* UNS$(n) -> unsigned decimal str  */
+        ubint uval = (ubint)eval_sub();
+        if (expr_type) error(4);
+        sprintf(ptr, "%u", (unsigned)uval);
     } else { error(0); }
 
     expr_type = 1;
@@ -1543,8 +1621,10 @@ int main(int argc, char *argv[])
             fclose(fp);
             if (!setjmp(savjmp)) execute((tok_t)RUN1); } }
 
-    printf("MICRO-BASIC 2.1 - Copyright 1982-2003 Dave Dunfield.\n");
-    printf("Modernized for GCC / ia16 / MinGW, 2026.\n");
+    printf("%s %d.%d  (based on %s)\n",
+           FORK_NAME, FORK_VER_MAJOR, FORK_VER_MINOR, BASE_VER_STR);
+    printf("Copyright 1982-2003 Dave Dunfield. "
+           "Modernized for GCC / ia16 / MinGW, %s.\n", BUILD_YEAR);
 
     setjmp(savjmp);
     for (;;) {
