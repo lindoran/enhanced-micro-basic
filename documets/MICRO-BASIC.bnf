@@ -1,0 +1,224 @@
+; =============================================================================
+; MICRO-BASIC 2.1 - Backus-Naur Form Grammar
+;
+; Notation:
+;   <rule>      ::= definition
+;   |               alternation
+;   [ item ]        optional
+;   { item }        zero or more repetitions
+;   "literal"       exact text (case-insensitive for keywords)
+;   #n              file handle: # followed by a digit 0-9
+; =============================================================================
+
+
+; =============================================================================
+; Top-level program structure
+; =============================================================================
+
+<program>       ::= { <line> }
+
+<line>          ::= <line-number> <statement> { ":" <statement> } <newline>
+                  | <line-number> <newline>       ; delete line if it exists
+
+<line-number>   ::= <digits>                      ; unsigned integer
+
+<direct>        ::= <statement>                   ; typed without a line number
+
+
+; =============================================================================
+; Statements
+; =============================================================================
+
+<statement>     ::= <let-stmt>
+                  | <beep-stmt>
+                  | <clear-stmt>
+                  | <close-stmt>
+                  | <data-stmt>
+                  | <delay-stmt>
+                  | <dim-stmt>
+                  | <dos-stmt>
+                  | <end-stmt>
+                  | <exit-stmt>
+                  | <for-stmt>
+                  | <gosub-stmt>
+                  | <goto-stmt>
+                  | <if-stmt>
+                  | <lif-stmt>
+                  | <input-stmt>
+                  | <list-stmt>
+                  | <load-stmt>
+                  | <new-stmt>
+                  | <next-stmt>
+                  | <open-stmt>
+                  | <order-stmt>
+                  | <out-stmt>
+                  | <print-stmt>
+                  | <read-stmt>
+                  | <rem-stmt>
+                  | <return-stmt>
+                  | <run-stmt>
+                  | <save-stmt>
+                  | <stop-stmt>
+
+; LET is the default: the keyword is optional
+<let-stmt>      ::= [ "LET" ] <var> "=" <expr>
+                  | [ "LET" ] <strvar> "=" <str-expr>
+
+<beep-stmt>     ::= "BEEP" <num-expr> "," <num-expr>
+                                        ; freq (Hz), duration (ms)
+
+<clear-stmt>    ::= "CLEAR"             ; erase all variables
+
+<close-stmt>    ::= "CLOSE" "#" <digit> ; close file handle n
+
+<data-stmt>     ::= "DATA" <data-item> { "," <data-item> }
+<data-item>     ::= <num-expr> | <str-expr>
+
+<delay-stmt>    ::= "DELAY" <num-expr>  ; pause for n milliseconds
+
+<dim-stmt>      ::= "DIM" <dim-item> { "," <dim-item> }
+<dim-item>      ::= <numvar> "(" <num-expr> ")"
+                                        ; allocates indices 0..n
+
+<dos-stmt>      ::= "DOS" <str-expr>    ; execute OS shell command
+
+<end-stmt>      ::= "END"               ; terminate program (program only)
+
+<exit-stmt>     ::= "EXIT"              ; quit the interpreter
+
+<for-stmt>      ::= "FOR" <numvar> "=" <num-expr> "TO" <num-expr>
+                        [ "STEP" <num-expr> ]
+                                        ; program only
+
+<gosub-stmt>    ::= "GOSUB" <line-number>   ; program only
+
+<goto-stmt>     ::= "GOTO"  <line-number>   ; program only
+
+<if-stmt>       ::= "IF" <num-expr> "THEN" <line-number>
+                  | "IF" <num-expr> "THEN" <statement>
+                                        ; single statement on true branch
+
+<lif-stmt>      ::= "LIF" <num-expr> "THEN" <statement> { ":" <statement> }
+                                        ; long IF: rest of line on true branch
+
+<input-stmt>    ::= "INPUT" [ <str-literal> "," ] <var>
+                  | "INPUT" "#" <digit> "," <var>
+
+<list-stmt>     ::= "LIST" [ <line-number> [ "," [ <line-number> ] ] ]
+                  | "LIST" "#" <digit> [ <line-number> [ "," [ <line-number> ] ] ]
+
+<load-stmt>     ::= "LOAD" <str-expr>   ; loads name.BAS
+
+<new-stmt>      ::= "NEW"               ; clear program and variables
+
+<next-stmt>     ::= "NEXT" [ <numvar> ] ; program only
+
+<open-stmt>     ::= "OPEN" "#" <digit> "," <str-expr> "," <str-expr>
+                                        ; handle, filename, fopen-mode
+
+<order-stmt>    ::= "ORDER" <line-number>   ; set READ pointer to DATA line
+
+<out-stmt>      ::= "OUT" <num-expr> "," <num-expr>
+                                        ; port, value
+
+<print-stmt>    ::= "PRINT" [ <print-list> ]
+                  | "PRINT" "#" <digit> "," [ <print-list> ]
+<print-list>    ::= <print-item> { "," <print-item> } [ "," ]
+                                        ; trailing comma suppresses newline
+<print-item>    ::= <expr>
+
+<read-stmt>     ::= "READ" <var> { "," <var> }
+
+<rem-stmt>      ::= "REM" { <any-char> }    ; comment to end of statement
+
+<return-stmt>   ::= "RETURN"            ; program only
+
+<run-stmt>      ::= "RUN" [ <line-number> ] ; direct only; clears variables
+
+<save-stmt>     ::= "SAVE" [ <str-expr> ]   ; direct only; saves name.BAS
+
+<stop-stmt>     ::= "STOP"              ; print message and halt (program only)
+
+
+; =============================================================================
+; Variables
+; =============================================================================
+
+; Variable names: letter + optional digit, optional $ suffix
+; A == A0,  Z$ == Z0$,  A5() is array element
+
+<var>           ::= <numvar> | <strvar>
+
+<numvar>        ::= <letter> [ <digit> ]
+<strvar>        ::= <letter> [ <digit> ] "$"
+<arrvar>        ::= <numvar> "(" <num-expr> ")"
+
+<letter>        ::= "A" | "B" | ... | "Z"     ; case-insensitive
+<digit>         ::= "0" | "1" | ... | "9"
+
+
+; =============================================================================
+; Expressions
+; =============================================================================
+
+<expr>          ::= <num-expr> | <str-expr>
+
+; Numeric expression - full precedence
+; Priority (low to high): = <> <= < >= >  then  + -  then  * / %  then  & | ^
+<num-expr>      ::= <num-term> { <num-op> <num-term> }
+<num-term>      ::= <num-factor> { <high-op> <num-factor> }
+<num-factor>    ::= <num-value>
+                  | "!" <num-factor>        ; unary bitwise NOT
+                  | "-" <num-factor>        ; unary minus
+
+<num-op>        ::= "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^"
+                  | "=" | "<>" | "<=" | "<" | ">=" | ">"
+<high-op>       ::= "*" | "/" | "%" | "&" | "|" | "^"
+
+<num-value>     ::= <digits>               ; integer literal
+                  | <numvar>
+                  | <arrvar>
+                  | "(" <num-expr> ")"
+                  | <num-function>
+
+; Numeric functions
+<num-function>  ::= "ABS(" <num-expr> ")"
+                  | "ASC(" <str-expr> ")"
+                  | "INP(" <num-expr> ")"
+                  | "KEY()"
+                  | "NUM(" <str-expr> ")"
+                  | "RND(" <num-expr> ")"
+
+; String expression - concatenation and equality only
+<str-expr>      ::= <str-value> { <str-op> <str-value> }
+<str-op>        ::= "+"                    ; concatenation
+                  | "="                    ; equality   -> numeric 0/1
+                  | "<>"                   ; inequality -> numeric 0/1
+
+<str-value>     ::= <str-literal>
+                  | <strvar>
+                  | <str-function>
+
+<str-function>  ::= "CHR$(" <num-expr> ")"
+                  | "STR$(" <num-expr> ")"
+
+<str-literal>   ::= '"' { <any-char-except-quote> } '"'
+
+
+; =============================================================================
+; Operators (summary)
+; =============================================================================
+
+; Arithmetic:   +  -  *  /  %
+; Bitwise:      &  |  ^  !  (! is unary NOT)
+; Comparison:   =  <>  <  <=  >  >=   (result: 1=true, 0=false)
+; String:       +  (concatenation),  =  <>  (comparison)
+
+
+; =============================================================================
+; Lexical
+; =============================================================================
+
+<digits>        ::= <digit> { <digit> }
+<newline>       ::= CR | LF | CRLF
+<any-char>      ::= ; any printable ASCII character
