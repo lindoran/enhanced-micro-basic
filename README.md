@@ -1,9 +1,12 @@
-# Micro-Basic 2.1
+# Enhanced Micro-Basic 2.2
 
 A generative AI test to see if Claude.ai, using only the free plan (Sonnet 4.6),
 could cross-port the single-file BASIC example from David Dunfield's Micro-C
 compiler installer to GCC. We took this a few steps further and made it work with
 MinGW and IA16-ELF to fully support 16-bit DOS all the way to modern times.
+Development has continued into a fork — **Enhanced Micro-Basic** — adding new
+language features while keeping the same philosophy of small, portable, and
+single-file.
 
 **This was a successful project.**
 
@@ -113,6 +116,37 @@ Expressions may be nested up to 8 levels deep.
 Unary `!` and unary `-` operate on the **unsigned** 16-bit representation of
 their operand. The result is returned as signed. This ensures `!0` gives `65535`
 (−1 as signed) and `-(-32768)` wraps to `-32768` rather than overflowing.
+
+### Numeric literal prefixes
+
+Integer literals are normally signed decimal. Two prefix characters allow
+alternative input formats. All values are stored as signed 16-bit regardless of
+how they are written.
+
+| Prefix | Type | Example |
+|--------|------|---------|
+| `#` | Hexadecimal | `#FF`, `#1A2B`, `A = #8000` |
+| `@` | Unsigned decimal | `@65535`, `@32768` |
+| none | Signed decimal | `255`, `-128` |
+
+There is no binary prefix. Use hex for bit patterns: `#0F` instead of `%00001111`.
+
+### String functions for numeric display
+
+Because the internal representation is always signed, two string functions let
+you display values in alternative formats:
+
+| Function | Output |
+|----------|--------|
+| `HEX$(n)` | Uppercase hexadecimal — e.g. `FF`, `1A2B` |
+| `UNS$(n)` | Unsigned decimal — e.g. `65535` |
+
+```basic
+A = #FFFF
+PRINT HEX$(A)          : REM  FFFF
+PRINT UNS$(A)          : REM  65535
+PRINT STR$(A)          : REM  -1
+```
 
 ---
 
