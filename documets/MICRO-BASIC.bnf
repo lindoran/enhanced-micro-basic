@@ -164,7 +164,7 @@
 <expr>          ::= <num-expr> | <str-expr>
 
 ; Numeric expression - full precedence
-; Priority (low to high): = <> <= < >= >  then  + -  then  * / %  then  & | ^
+; Priority (low to high): = <> <= < >= >  then  + -  then  * / %  then  & | ^ << >>
 <num-expr>      ::= <num-term> { <num-op> <num-term> }
 <num-term>      ::= <num-factor> { <high-op> <num-factor> }
 <num-factor>    ::= <num-value>
@@ -172,8 +172,9 @@
                   | "-" <num-factor>        ; unary minus
 
 <num-op>        ::= "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^"
+                  | "<<" | ">>"            ; bit shifts (same priority as & | ^)
                   | "=" | "<>" | "<=" | "<" | ">=" | ">"
-<high-op>       ::= "*" | "/" | "%" | "&" | "|" | "^"
+<high-op>       ::= "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
 
 <num-value>     ::= <num-literal>             ; integer literal (see below)
                   | <numvar>
@@ -222,6 +223,7 @@
 ; =============================================================================
 
 ; Arithmetic:   +  -  *  /  %
+; Bit shift:    <<  >>  (logical; both operands treated as unsigned 16-bit)
 ; Bitwise:      &  |  ^  !  (! is unary NOT)
 ; Comparison:   =  <>  <  <=  >  >=   (result: 1=true, 0=false)
 ; String:       +  (concatenation),  =  <>  (comparison)

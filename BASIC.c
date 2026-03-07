@@ -451,25 +451,46 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #define EQ     42
 #define NE     43
 #define LE     44
-#define LT     45
-#define GE     46
-#define GT     47
-#define CHR    48
-#define STR    49
-#define ASC    50
-#define ABS    51
-#define NUM    52
-#define RND    53
-#define KEY    54
-#define INP    55
-#define HEX    56   /* HEX$(n) - format bint as uppercase hex string        */
-#define UNS    57   /* UNS$(n) - format bint as unsigned decimal string     */
+#define SHL    45   /* TODO(bitshift): <<  logical left shift               */
+#define LT     46
+#define GE     47
+#define SHR    48   /* TODO(bitshift): >>  logical right shift              */
+#define GT     49
+#define CHR    50
+#define STR    51
+#define ASC    52
+#define ABS    53
+#define NUM    54
+#define RND    55
+#define KEY    56
+#define INP    57
+#define HEX    58   /* HEX$(n) - format bint as uppercase hex string        */
+#define UNS    59   /* UNS$(n) - format bint as unsigned decimal string     */
 
 /* Pseudo-command: RUN without clearing variables (used by LOAD-in-program) */
 #define RUN1   99
 
-/* Operator priority table, indexed from 0 by (op_token - (ADD-1)) */
-static const uint8_t RODATA priority[] = { 0, 1, 1, 2, 2, 2, 3, 3, 3, 1, 1, 1, 1, 1, 1 };
+/* Operator priority table, indexed from 0 by (op_token - (ADD-1)).
+ * Index = token - 33.
+ *  1- 8: ADD SUB MUL DIV MOD AND OR  XOR   (arithmetic + bitwise)
+ *  9-11: EQ  NE  LE                        (equality, <=)
+ * 12   : SHL                               (<< priority 3 = same as & | ^)
+ * 13   : LT                                (<)
+ * 14   : GE                                (>=)
+ * 15   : SHR                               (>> priority 3 = same as & | ^)
+ * 16   : GT                                (>)
+ * TODO(bitshift): SHL/SHR slots at 12 and 15. */
+static const uint8_t RODATA priority[] = {
+    0,                /* 0  sentinel                                        */
+    1, 1, 2, 2, 2,    /* 1- 5: ADD SUB MUL DIV MOD                         */
+    3, 3, 3,          /* 6- 8: AND OR  XOR                                 */
+    1, 1, 1,          /* 9-11: EQ  NE  LE                                  */
+    3,                /* 12  : SHL                                         */
+    1,                /* 13  : LT                                          */
+    1,                /* 14  : GE                                          */
+    3,                /* 15  : SHR                                         */
+    1                 /* 16  : GT                                          */
+};
 
 /* Reserved word strings - order must match token #defines above */
 static const char * const RODATA reserved_words[] = {
@@ -479,7 +500,7 @@ static const char * const RODATA reserved_words[] = {
     "SAVE",  "LOAD",  "DELAY", "BEEP",  "DOS",   "OUT",
     "TO",    "STEP",  "THEN",
     "+", "-", "*", "/", "%", "&", "|", "^",
-    "=", "<>", "<=", "<", ">=", ">",
+    "=", "<>", "<=", "<<", "<", ">=", ">>", ">",
     "CHR$(", "STR$(", "ASC(", "ABS(", "NUM(", "RND(", "KEY(", "INP(",
     "HEX$(", "UNS$(",
     NULL
@@ -1519,8 +1540,10 @@ static bint do_arith(int opr, bint op1, bint op2)
     case EQ -(ADD-1): return (bint)(op1 == op2);
     case NE -(ADD-1): return (bint)(op1 != op2);
     case LE -(ADD-1): return (bint)(op1 <= op2);
+    case SHL-(ADD-1): return (bint)((ubint)op1 << op2);  /* logical shift */
     case LT -(ADD-1): return (bint)(op1 <  op2);
     case GE -(ADD-1): return (bint)(op1 >= op2);
+    case SHR-(ADD-1): return (bint)((ubint)op1 >> op2);  /* logical shift */
     case GT -(ADD-1): return (bint)(op1 >  op2);
     default: error(0); return 0; }
 }

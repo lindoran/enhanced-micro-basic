@@ -85,7 +85,7 @@ Operator precedence from highest to lowest:
 
 ```
 Unary:   !  -              (bitwise NOT, unary minus)
-         &  |  ^           (bitwise)
+         &  |  ^  <<  >>  (bitwise and bit shift)
          *  /  %           (multiplicative)
          +  -  =  <>  <  <=  >  >=   (additive and comparison — same priority)
 ```

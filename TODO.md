@@ -4,33 +4,6 @@ Items are grouped by complexity and listed in recommended implementation order.
 Each item references the tag used in source comments for easy searching.
 
 
-### `TODO(bitshift)` — Bit shift operators `<<` and `>>`
-
-Two new operator tokens at priority 3 (same level as `&` `|` `^`).
-
-```
-SHL  56   <<   (ubint)op1 << op2
-SHR  57   >>   (ubint)op1 >> op2
-```
-
-`ubint` cast required on both — logical shift not arithmetic. Consistent with
-existing bitwise operator behaviour.
-
-**Important:** `"<<"` and `">>"` must appear **before** `"<"` and `">"` in
-`reserved_words[]` so the longer match wins. Same pattern as `<=` and `>=`
-already use.
-
-Changes required:
-- Two new `#define` tokens
-- Two entries in `reserved_words[]`
-- Two entries in `priority[]`
-- Two cases in `do_arith()`
-
-Approximately 15 lines of new code total. Implement after `TODO(literals)` is
-stable and tested.
-
----
-
 ### `TODO(unsigned-compare)` — `UGT()` and `ULT()` unsigned comparison functions
 
 All comparison operators (`<` `<=` `>` `>=`) are signed — same contract as 6809
