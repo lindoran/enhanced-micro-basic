@@ -1,5 +1,5 @@
 # =============================================================================
-# MICRO-BASIC 2.1 - Makefile
+# ENHANCED MICRO-BASIC 2.2 - Makefile
 #
 # Targets:
 #   make           -> linux (default)
@@ -14,15 +14,12 @@
 #   make linux NUM_VAR=52 CTL_DEPTH=12 SA_SIZE=32
 # =============================================================================
 
-# =============================================================================
-# MICRO-BASIC 2.1 - Makefile
-# =============================================================================
-
-SRC	  = BASIC.c
+SRC      = BASIC.c
 CFLAGS   = -std=c99 -Wall -Wextra -O2
 
 BIN_DIR  = bin
 DIST_DIR = dist
+DOCS_DIR = documents
 
 # Optional tuning defines
 ifdef NUM_VAR
@@ -42,19 +39,30 @@ ifdef MAX_FILES
 endif
 
 # -----------------------------------------------------------------------------
-.PHONY: all linux windows windows64 dos dos-small clean dirs package
+.PHONY: all linux windows windows64 dos dos-small clean dirs package \
+        package-linux package-windows package-windows64 package-dos package-dos-small \
+        package-all clean-bins
 
 all: linux
 
 dirs:
 	mkdir -p $(BIN_DIR) $(DIST_DIR)
+# -----------------------------------------------------------------------------
+# Shared documentation staging helper.
+# Usage: $(call stage-docs,$(BIN_DIR)/linux)
+# Copies README.md and the entire documentation/ folder into the target dir.
+# -----------------------------------------------------------------------------
+define stage-docs
+	@if [ -f README.md ]; then cp README.md $(1); fi
+	@if [ -d $(DOCS_DIR) ]; then cp -r $(DOCS_DIR) $(1)/$(DOCS_DIR); fi
+endef
 
 # -----------------------------------------------------------------------------
 # Linux
 # -----------------------------------------------------------------------------
 linux: dirs $(SRC)
 	mkdir -p $(BIN_DIR)/linux
-	gcc $(CFLAGS) -o $(BIN_DIR)/linux/basic $(SRC) tinybeep.c -lasound 
+	gcc $(CFLAGS) -o $(BIN_DIR)/linux/basic $(SRC) tinybeep.c -lasound
 	$(MAKE) package-linux
 
 # -----------------------------------------------------------------------------
@@ -91,37 +99,33 @@ dos-small: dirs $(SRC)
 
 # -----------------------------------------------------------------------------
 # Packaging rules
+# Each target stages README.md + documentation/ then zips everything.
 # -----------------------------------------------------------------------------
 
 package-linux:
 	@echo "Packaging Linux build..."
-	@if [ -f README.md ]; then cp README.md $(BIN_DIR)/linux; fi
-	cd $(BIN_DIR)/linux && zip -q ../../$(DIST_DIR)/linux.zip basic README.md 2>/dev/null || \
-	cd $(BIN_DIR)/linux && zip -q ../../$(DIST_DIR)/linux.zip basic
+	$(call stage-docs,$(BIN_DIR)/linux)
+	cd $(BIN_DIR)/linux && zip -qr ../../$(DIST_DIR)/linux.zip .
 
 package-windows:
 	@echo "Packaging Windows 32-bit build..."
-	@if [ -f README.md ]; then cp README.md $(BIN_DIR)/windows; fi
-	cd $(BIN_DIR)/windows && zip -q ../../$(DIST_DIR)/windows.zip basic.exe README.md 2>/dev/null || \
-	cd $(BIN_DIR)/windows && zip -q ../../$(DIST_DIR)/windows.zip basic.exe
+	$(call stage-docs,$(BIN_DIR)/windows)
+	cd $(BIN_DIR)/windows && zip -qr ../../$(DIST_DIR)/windows.zip .
 
 package-windows64:
 	@echo "Packaging Windows 64-bit build..."
-	@if [ -f README.md ]; then cp README.md $(BIN_DIR)/windows64; fi
-	cd $(BIN_DIR)/windows64 && zip -q ../../$(DIST_DIR)/windows64.zip basic.exe README.md 2>/dev/null || \
-	cd $(BIN_DIR)/windows64 && zip -q ../../$(DIST_DIR)/windows64.zip basic.exe
+	$(call stage-docs,$(BIN_DIR)/windows64)
+	cd $(BIN_DIR)/windows64 && zip -qr ../../$(DIST_DIR)/windows64.zip .
 
 package-dos:
 	@echo "Packaging DOS build..."
-	@if [ -f README.md ]; then cp README.md $(BIN_DIR)/dos; fi
-	cd $(BIN_DIR)/dos && zip -q ../../$(DIST_DIR)/dos.zip basic.exe README.md 2>/dev/null || \
-	cd $(BIN_DIR)/dos && zip -q ../../$(DIST_DIR)/dos.zip basic.exe
+	$(call stage-docs,$(BIN_DIR)/dos)
+	cd $(BIN_DIR)/dos && zip -qr ../../$(DIST_DIR)/dos.zip .
 
 package-dos-small:
 	@echo "Packaging DOS SMALL_TARGET build..."
-	@if [ -f README.md ]; then cp README.md $(BIN_DIR)/dos-small; fi
-	cd $(BIN_DIR)/dos-small && zip -q ../../$(DIST_DIR)/dos-small.zip basic.exe README.md 2>/dev/null || \
-	cd $(BIN_DIR)/dos-small && zip -q ../../$(DIST_DIR)/dos-small.zip basic.exe
+	$(call stage-docs,$(BIN_DIR)/dos-small)
+	cd $(BIN_DIR)/dos-small && zip -qr ../../$(DIST_DIR)/dos-small.zip .
 
 # -----------------------------------------------------------------------------
 # Clean
@@ -130,7 +134,7 @@ clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)
 
 # -----------------------------------------------------------------------------
-# Meta‑targets
+# Meta-targets
 # -----------------------------------------------------------------------------
 
 # Build everything
@@ -142,4 +146,3 @@ package-all: package-linux package-windows package-windows64 package-dos package
 # Clean only binaries, keep dist packages
 clean-bins:
 	rm -rf $(BIN_DIR)
-
