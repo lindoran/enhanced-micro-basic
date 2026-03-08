@@ -546,6 +546,7 @@ struct line_rec {
 static char sa1[SA_SIZE], sa2[SA_SIZE]; /* string expression accumulators  */
 
 static struct line_rec *pgm_start;  /* head of program line list            */
+static struct line_rec *pgm_end;    /* tail of program line list (last line) */
 static struct line_rec *runptr;     /* line currently being executed        */
 static struct line_rec *readptr;    /* current DATA line for READ           */
 
@@ -778,6 +779,11 @@ static void delete_line(ubint lino)
             if (prev) prev->Llink = cur->Llink;
             else      pgm_start   = cur->Llink;
             free(cur);
+            /* if we deleted the tail, rescan for new tail */
+            if (pgm_end == cur) {
+                pgm_end = NULL;
+                for (cur = pgm_start; cur; cur = cur->Llink)
+                    pgm_end = cur; }
             return; } }
 }
 
@@ -798,6 +804,9 @@ static void insert_line(ubint lino)
     node->Llink = cur;
     if (prev) prev->Llink = node;
     else      pgm_start   = node;
+
+    /* if node has no successor it is the new tail */
+    if (!node->Llink) pgm_end = node;
 }
 
 /* =======================================================================
@@ -1602,6 +1611,7 @@ static void clear_pgm(void)
     struct line_rec *p, *next;
     for (p = pgm_start; p; p = next) { next = p->Llink; free(p); }
     pgm_start = NULL;
+    pgm_end   = NULL;
 }
 
 static void clear_vars(void)
@@ -1655,8 +1665,8 @@ int main(int argc, char *argv[])
      * at argv[1].
      */
     pgm_start = NULL;
+    pgm_end   = NULL;
     for (j = 0, i = 1; i < argc; ++i, ++j) {
-        char_vars[j] = (char *)malloc(strlen(argv[i]) + 1);
         if (char_vars[j]) strcpy(char_vars[j], argv[i]); }
 
     /*

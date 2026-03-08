@@ -3,30 +3,6 @@
 Items are grouped by complexity and listed in recommended implementation order.
 Each item references the tag used in source comments for easy searching.
 
-
-### `TODO(unsigned-compare)` — `UGT()` and `ULT()` unsigned comparison functions
-
-All comparison operators (`<` `<=` `>` `>=`) are signed — same contract as 6809
-`BGT`/`BLT`. For unsigned comparison the XOR trick works in the meantime:
-
-```basic
-IF (A0 ^ #8000) > (B0 ^ #8000) THEN ...  : REM unsigned >
-```
-
-`UGT(a,b)` and `ULT(a,b)` are cleaner helpers returning 1/0 like the comparison
-operators:
-
-```basic
-IF UGT(A0, #8000) THEN ...
-IF ULT(A0, B0) THEN ...
-```
-
-Implementation: cast both operands to `ubint` before comparing. Two new tokens,
-two cases in `get_value()`. No other changes needed. Low priority — the XOR trick
-works fine until this is implemented.
-
----
-
 ## Medium Complexity — Implement Second
 
 ### `TODO(reljmp)` — Forward relative jumps
@@ -135,25 +111,3 @@ Tuning define:
 ```
 
 ---
-
-## Outside the Source — Discussed, Not Yet TODO'd
-
-### ALSA beep HAL for Linux
-Current Linux HAL sends a terminal bell — not useful. ALSA tone generator makes
-`BEEP freq, ms` work correctly on Linux. Code exists in a separate conversation.
-Slots into the HAL `#ifdef` block, no other changes needed. Bring over when ready.
-
-### Fixed point 8.8
-Decided this is a **programming technique, not a language feature**. Once bit
-shifts are implemented, 8.8 fixed point arithmetic is fully expressible in BASIC:
-
-```basic
-REM 8.8 multiply: zr_new = ((zr*zr - zi*zi) >> 8) + cr
-```
-
-No interpreter changes needed. Manual to include a section explaining the
-convention with Mandelbrot as a worked example.
-
-### RPEEK / RPOKE — Register alias table
-Revisit when actively targeting AVR or 6809. Register names map to addresses in
-a platform-specific HAL table. Depends on PEEK/POKE being stable first.
