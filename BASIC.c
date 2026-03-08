@@ -236,6 +236,12 @@ static void  do_out(ubint p, ubint v)    { outp(p, (uint8_t)v); }
 static void  do_beep(ubint freq, ubint ms) { Beep(freq, ms); }
 static void  do_delay(ubint ms)            { Sleep(ms); }
 static bint  kbtst(void)  { return (bint)(_kbhit() ? _getch() : 0); }
+/* inp()/outp() from <conio.h> exist on MinGW but are blocked on all
+ * NT-based Windows (XP onward). Port I/O requires ring 0 / a kernel
+ * driver. The conio versions are a fossil from the Win9x / Win32s era
+ * when the DOS real-mode layer was still present and port access could
+ * slip through. We no-op explicitly rather than calling conio to make
+ * intent clear and avoid silent failure on Win10/Win11.              */
 static ubint do_in(ubint p)               { (void)p; return 0; }
 static void  do_out(ubint p, ubint v)     { (void)p; (void)v; }
 
