@@ -123,8 +123,10 @@
 
 <print-stmt>    ::= "PRINT" [ <print-list> ]
                   | "PRINT" "#" <digit> "," [ <print-list> ]
-<print-list>    ::= <print-item> { "," <print-item> } [ "," ]
-                                        ; trailing comma suppresses newline
+<print-list>    ::= <print-item> { ( "," | ";" ) <print-item> } [ "," | ";" ]
+                                        ; trailing , or ; suppresses newline
+                                        ; ; also suppresses space before next numeric item
+                                        ; neither , nor ; implements print zones
 <print-item>    ::= <expr>
 
 <read-stmt>     ::= "READ" <var> { "," <var> }
@@ -199,6 +201,8 @@
                   | "KEY()"
                   | "NUM(" <str-expr> ")"
                   | "RND(" <num-expr> ")"
+                  | "UGT(" <num-expr> "," <num-expr> ")"   ; unsigned greater-than
+                  | "ULT(" <num-expr> "," <num-expr> ")"   ; unsigned less-than
 
 ; String expression - concatenation and equality only
 <str-expr>      ::= <str-value> { <str-op> <str-value> }

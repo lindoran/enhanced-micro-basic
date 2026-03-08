@@ -79,7 +79,7 @@ The `0` suffix may be omitted: `A` == `A0`, `Z$` == `Z0$`.
 
 ### Numeric type
 
-All numeric values are 16-bit signed integers, **except when evaluated as unary**.
+All numeric values are stored as 16-bit quantities and interpreted as signed by default.
 
 Operator precedence from highest to lowest:
 
@@ -120,8 +120,8 @@ their operand. The result is returned as signed. This ensures `!0` gives `65535`
 ### Numeric literal prefixes
 
 Integer literals are normally signed decimal. Two prefix characters allow
-alternative input formats. All values are stored as signed 16-bit regardless of
-how they are written.
+alternative input formats. All values are stored as 16-bit quantities and
+interpreted as signed by default.
 
 | Prefix | Type | Example |
 |--------|------|---------|
@@ -131,9 +131,32 @@ how they are written.
 
 There is no binary prefix. Use hex for bit patterns: `#0F` instead of `%00001111`.
 
-### String functions for numeric display
+### Unsigned comparison functions
 
-Because the internal representation is always signed, two string functions let
+The `<`, `<=`, `>`, `>=` operators are signed. Use these functions when values
+may exceed 32767:
+
+| Function | Returns |
+|----------|---------|
+| `UGT(a, b)` | 1 if a > b unsigned, 0 otherwise |
+| `ULT(a, b)` | 1 if a < b unsigned, 0 otherwise |
+
+```basic
+IF UGT(A, #7FFF) THEN PRINT "upper half"
+```
+
+### PRINT separators
+
+Items in a PRINT list may be separated by `,` or `;`. A semicolon suppresses
+the space that would otherwise appear before a numeric value. Neither implements
+print zones. A trailing `,` or `;` suppresses the newline.
+
+```basic
+PRINT "X = "; X          : REM  no space between label and value
+PRINT "A = "; A, "B = "; B  : REM  mix freely
+```
+
+Because values are stored as 16-bit quantities and interpreted as signed by default, two string functions let
 you display values in alternative formats:
 
 | Function | Output |

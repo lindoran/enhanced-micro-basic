@@ -466,6 +466,8 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #define INP    57
 #define HEX    58   /* HEX$(n) - format bint as uppercase hex string        */
 #define UNS    59   /* UNS$(n) - format bint as unsigned decimal string     */
+#define UGT    60   /* UGT(a,b) - unsigned greater-than, returns 1/0        */
+#define ULT    61   /* ULT(a,b) - unsigned less-than, returns 1/0           */
 
 /* Pseudo-command: RUN without clearing variables (used by LOAD-in-program) */
 #define RUN1   99
@@ -503,6 +505,7 @@ static const char * const RODATA reserved_words[] = {
     "=", "<>", "<=", "<<", "<", ">=", ">>", ">",
     "CHR$(", "STR$(", "ASC(", "ABS(", "NUM(", "RND(", "KEY(", "INP(",
     "HEX$(", "UNS$(",
+    "UGT(",  "ULT(",
     NULL
 };
 
@@ -629,7 +632,7 @@ static void concat(char *dst, const char *a, const char *b)
 static int is_e_end(tok_t c)
 {
     if (c >= TOKEN(TO) && c < TOKEN(ADD)) return 1;
-    return (c == '\0') || (c == ':') || (c == ')') || (c == ',');
+    return (c == '\0') || (c == ':') || (c == ')') || (c == ',') || (c == ';');
 }
 
 /* True at the end of a statement */
@@ -991,16 +994,22 @@ newline:
 
     /* ---- PRINT --------------------------------------------------------- */
     case PRINT : {
-        int no_nl = 0;
+        /* delim tracks the separator just consumed:
+         *   0 = start / after comma  (normal spacing, newline at end)
+         *   1 = after semicolon      (no space before next item)
+         * A trailing , or ; suppresses the final newline.            */
+        int delim = 0;
+        int suppress_nl = 0;
         chk_file(1);
-        do {
-            if (is_l_end(skip_blank())) { no_nl = 1; }
-            else {
-                val = eval();
-                if (!expr_type) { num_string(val, sa1); putc(' ', fileout); }
-                fputs(sa1, fileout); }
-        } while (test_next(','));
-        if (!no_nl) putc('\n', fileout);
+        while (!is_l_end(skip_blank())) {
+            val = eval();
+            if (!expr_type) { num_string(val, sa1); if (!delim) putc(' ', fileout); }
+            fputs(sa1, fileout);
+            if      (test_next(';')) { delim = 1; suppress_nl = 1; }
+            else if (test_next(',')) { delim = 0; suppress_nl = 1; }
+            else                    { suppress_nl = 0; break; }
+        }
+        if (!suppress_nl) putc('\n', fileout);
         break; }
 
     /* ---- FOR v = init TO limit [STEP n] ------------------------------- */
@@ -1456,6 +1465,24 @@ static bint get_value(void)
 
         case TOKEN(INP) :               /* INP(port)                        */
             value = (bint)do_in((ubint)eval_sub());
+            goto number_only;
+
+        case TOKEN(UGT) : {             /* UGT(a,b) -> unsigned a > b       */
+            ubint a = (ubint)eval_sub();
+            if (expr_type) error(4);
+            --nest;                     /* comma closes first arg context   */
+            expect(',');
+            ubint b = (ubint)eval_sub();
+            value = (bint)(a > b);
+            goto number_only; }
+
+        case TOKEN(ULT) : {             /* ULT(a,b) -> unsigned a < b       */
+            ubint a = (ubint)eval_sub();
+            if (expr_type) error(4);
+            --nest;                     /* comma closes first arg context   */
+            expect(',');
+            ubint b = (ubint)eval_sub();
+            value = (bint)(a < b); }
 number_only:
             if (expr_type) error(4);
             break;
