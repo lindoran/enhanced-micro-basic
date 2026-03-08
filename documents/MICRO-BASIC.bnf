@@ -22,6 +22,11 @@
 
 <line-number>   ::= <digits>                      ; unsigned integer
 
+<jump-target>   ::= <line-number>                 ; absolute jump to named line
+                  | "+" <digits>                  ; relative forward: skip n lines from current
+                                                  ; n must be 1..127
+                                                  ; "-" is a syntax error (backward not supported)
+
 <direct>        ::= <statement>                   ; typed without a line number
 
 
@@ -90,11 +95,11 @@
                         [ "STEP" <num-expr> ]
                                         ; program only
 
-<gosub-stmt>    ::= "GOSUB" <line-number>   ; program only
+<gosub-stmt>    ::= "GOSUB" <jump-target>   ; program only
 
-<goto-stmt>     ::= "GOTO"  <line-number>   ; program only
+<goto-stmt>     ::= "GOTO"  <jump-target>   ; program only
 
-<if-stmt>       ::= "IF" <num-expr> "THEN" <line-number>
+<if-stmt>       ::= "IF" <num-expr> "THEN" <jump-target>
                   | "IF" <num-expr> "THEN" <statement>
                                         ; single statement on true branch
 

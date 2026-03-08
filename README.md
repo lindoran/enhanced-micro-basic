@@ -61,6 +61,18 @@ is in the manual in the `/documentation` folder.
 - `GOTO`, `GOSUB` / `RETURN`
 - `FOR` / `NEXT`, `WHILE`-style loops via `IF` + `GOTO`
 
+#### Relative jumps
+
+Wherever a line number is accepted by `GOTO`, `GOSUB`, or `IF ... THEN`, you may write `+n` instead to jump forward *n* lines from the currently executing line (n = 1–127). This is useful for short forward branches that would otherwise need a named target line.
+
+```basic
+IF A = 0 THEN +2       : REM skip the next line if A is zero
+PRINT "A is not zero"
+PRINT "done"
+```
+
+Backward relative jumps (`-n`) are not supported and produce a syntax error. Line-counting always starts from the line containing the jump statement; `+1` skips one line forward.
+
 ### Hardware
 
 - `BEEP freq, ms` — PC speaker tone (real-mode DOS targets)

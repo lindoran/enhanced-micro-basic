@@ -3,51 +3,6 @@
 Items are grouped by complexity and listed in recommended implementation order.
 Each item references the tag used in source comments for easy searching.
 
-## Medium Complexity — Implement Second
-
-### `TODO(reljmp)` — Forward relative jumps
-
-Forward-only relative jumps for `GOTO`, `GOSUB`, and `IF`. No back pointer
-needed — singly linked list stays as-is. Backwards jumps use absolute line
-numbers as before.
-
-```basic
-GOTO +4              : REM skip 4 lines forward
-GOSUB +10            : REM call subroutine 10 lines ahead, return here
-IF X >= 10 THEN +3   : REM skip 3 lines if true
-```
-
-`-` prefix is a hard error — catches accidental signed literals.
-
-**Three places to update together:**
-1. `GOTO` / `GOSUB` handler in `execute()`
-2. `IF` handler in `execute()`
-3. LIF gets relative jumps **for free** via `GOTO` in the body — no changes needed
-
-Implementation sketch (same pattern in both GOTO and IF):
-```c
-c = skip_blank();
-if (c == '+') {
-    ubint offset = get_num();
-    lp = runptr;
-    while (offset-- > 0 && lp) lp = lp->Llink;
-    if (!lp) error(3);
-    return lp; }
-if (c == '-') error(0);   /* relative back not supported */
-cmdptr--;                  /* put char back for eval_num() */
-return find_line((ubint)eval_num());
-```
-
-Use cases:
-- While-loop pattern: `IF X >= 10 THEN +3` skips loop body
-- Skip-ahead: `IF F$ = "" THEN +4` skips file open block
-- Tight subroutines without inventing line numbers: `GOSUB +5`
-
-Verify carefully: GOSUB relative push/pop, edge case of jumping past end of
-program, interaction with control stack.
-
----
-
 ## High Complexity — Design First, Implement Later
 
 ### `TODO(peek)` / `TODO(poke)` — Memory access

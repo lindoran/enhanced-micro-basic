@@ -432,6 +432,9 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #define DELAY  27
 #define BEEP   28
 #define DOS    29
+#ifdef OUT
+#undef OUT   /* MinGW's windows.h defines OUT as an empty annotation macro */
+#endif
 #define OUT    30
 
 /* Secondary keyword tokens */
@@ -593,6 +596,7 @@ static void          delete_line(ubint lino);
 static void          insert_line(ubint lino);
 static int           edit_program(void);
 static struct line_rec *find_line(ubint lno);
+static struct line_rec *resolve_jump(void);
 static bint         *num_address(void);
 static char        **str_address(void);
 static struct line_rec *execute(tok_t cmd);
@@ -858,6 +862,33 @@ static struct line_rec *find_line(ubint lno)
 }
 
 /* =======================================================================
+ * resolve_jump() - parse a jump target from cmdptr.
+ *
+ * Two forms:
+ *   +n   relative forward: advance n lines from runptr (1..127).
+ *        Hard error on '-' (backward relative not supported).
+ *   n    absolute line number: delegates to find_line().
+ *
+ * Called by GOTO, GOSUB, and IF...THEN handlers.
+ * ======================================================================= */
+static struct line_rec *resolve_jump(void)
+{
+    tok_t c = skip_blank();
+    if (c == TOKEN(ADD)) {
+        struct line_rec *lp;
+        ubint offset;
+        ++cmdptr;
+        offset = (ubint)get_num();
+        if (offset == 0 || offset > 127) error(3);
+        lp = runptr;
+        while (offset-- && lp) lp = lp->Llink;
+        if (!lp) error(3);          /* jumped past end of program           */
+        return lp; }
+    if (c == TOKEN(SUB)) error(0);  /* backward relative jumps not supported */
+    return find_line((ubint)eval_num());
+}
+
+/* =======================================================================
  * Lvalue address helpers
  *
  * Two typed helpers replace the previous uintptr_t* trick, giving the
@@ -989,7 +1020,7 @@ newline:
     /* ---- GOTO line ----------------------------------------------------- */
     case GOTO :
         pgm_only();
-        return find_line((ubint)eval_num());
+        return resolve_jump();
 
     /* ---- RETURN -------------------------------------------------------- */
     case RETURN :
@@ -1062,7 +1093,8 @@ newline:
         val = eval_num(); expect(TOKEN(THEN));
         if (val) {
             c = skip_blank();
-            if (isdigit((unsigned char)c)) return find_line((ubint)eval_num());
+            if (isdigit((unsigned char)c) || c == TOKEN(ADD) || c == TOKEN(SUB))
+                return resolve_jump();
             if (c < 0) { ++cmdptr; return execute(c); }
             execute((tok_t)LET);
         } else { skip_stmt(); }
