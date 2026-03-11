@@ -236,12 +236,6 @@ static void  do_out(ubint p, ubint v)    { outp(p, (uint8_t)v); }
 static void  do_beep(ubint freq, ubint ms) { Beep(freq, ms); }
 static void  do_delay(ubint ms)            { Sleep(ms); }
 static bint  kbtst(void)  { return (bint)(_kbhit() ? _getch() : 0); }
-/* inp()/outp() from <conio.h> exist on MinGW but are blocked on all
- * NT-based Windows (XP onward). Port I/O requires ring 0 / a kernel
- * driver. The conio versions are a fossil from the Win9x / Win32s era
- * when the DOS real-mode layer was still present and port access could
- * slip through. We no-op explicitly rather than calling conio to make
- * intent clear and avoid silent failure on Win10/Win11.              */
 static ubint do_in(ubint p)               { (void)p; return 0; }
 static void  do_out(ubint p, ubint v)     { (void)p; (void)v; }
 
@@ -253,19 +247,12 @@ static void  do_out(ubint p, ubint v)     { (void)p; (void)v; }
  * INP/OUT -> no-ops (no user-mode port access on protected-mode OS)
  * ----------------------------------------------------------------------- */
 #  include <time.h>
-#  include <alsa/asoundlib.h>
-#  include "tinybeep.h"  // local public domain beeper
 
+/* BEEP stub: no ALSA available in this build environment */
 static void do_beep(ubint freq, ubint ms)
 {
-    //(void)freq; (void)ms;
-    //fputc('\a', stdout); fflush(stdout);
-    snd_lib_error_set_handler(NULL);  /* silence ALSA internal messages */ 
-
-    tinybeep(freq, ms);
-
-
-
+    (void)freq; (void)ms;
+    fputc('\a', stdout); fflush(stdout);
 }
 
 static void do_delay(ubint ms)
@@ -1711,13 +1698,18 @@ int main(int argc, char *argv[])
      * If argv[1] names a file, load and run it silently before the banner.
      * Programs terminating with EXIT produce no extra output.
      */
-    if (j) {
+    if (argc > 1) {
         FILE *fp;
-        snprintf(filename, sizeof(filename), "%s.BAS", char_vars[0]);
+        snprintf(filename, sizeof(filename), "%s.BAS", argv[1]);
         if ((fp = fopen(filename, "rb")) != NULL) {
             while (fgets(buffer, (int)(sizeof(buffer)-1), fp)) edit_program();
             fclose(fp);
-            if (!setjmp(savjmp)) execute((tok_t)RUN1); } }
+            if (!setjmp(savjmp)) execute((tok_t)RUN1);
+            exit(0);
+        } else {
+            fprintf(stderr, "Cannot open: %s\n", filename);
+            exit(1);
+        } }
 
     printf("%s %d.%d  (based on %s)\n",
            FORK_NAME, FORK_VER_MAJOR, FORK_VER_MINOR, BASE_VER_STR);
