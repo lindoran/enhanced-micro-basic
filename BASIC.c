@@ -123,6 +123,7 @@
 #include <ctype.h>
 #include <setjmp.h>
 #include <stdint.h>
+#include <time.h>
 
 /* =======================================================================
  * Portable type aliases
@@ -247,12 +248,13 @@ static void  do_out(ubint p, ubint v)     { (void)p; (void)v; }
  * INP/OUT -> no-ops (no user-mode port access on protected-mode OS)
  * ----------------------------------------------------------------------- */
 #  include <time.h>
+#  include <alsa/asoundlib.h> 
+#  include "tinybeep.h"
 
 /* BEEP stub: no ALSA available in this build environment */
 static void do_beep(ubint freq, ubint ms)
 {
-    (void)freq; (void)ms;
-    fputc('\a', stdout); fflush(stdout);
+    tinybeep(freq, ms);
 }
 
 static void do_delay(ubint ms)
@@ -1489,6 +1491,7 @@ static bint get_value(void)
             if (value < 0) value = (bint)-value;
             goto number_only;
 
+        // TODO: XOR SHIFT on 8 bit targets - needs to be stubbed out for 3.0
         case TOKEN(RND) : {             /* RND(n) -> 0..n-1                 */
             ubint range = (ubint)eval_sub();
             value = range ? (bint)(rand() % (int)range) : 0;
@@ -1680,6 +1683,25 @@ static ubint get_var(void)
  * ======================================================================= */
 int main(int argc, char *argv[])
 {
+   
+/* supress error messages from ALSA's libsndfile when built with TINYBEEP support
+   some of these are status messages that are not actually errors - this keeps
+   the console for basic only. */ 
+
+#ifdef TINYBEEP_H
+
+    snd_lib_error_set_handler(NULL);  /* silence ALSA internal messages */
+
+#endif
+
+    /* 
+       
+       TODO: Implement XOR SHFIT for RND in 8 bit targets for 3.0 relese 
+       will need a stub to manage this seed as well from whatever is aval.
+    
+     */
+    srand((unsigned)time(NULL));  /* seed RND() from current time */
+    
     int   i;
     ubint j;
     tok_t tok;
