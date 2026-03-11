@@ -39,7 +39,7 @@
 340    IF O>6 THEN +2
 350    PRINT "#";:GOTO 390
 360    PRINT "@";
-390  NEXT J                          : SWITCH CASE EXITS HERE, GO TO NEXT J IN FOR LOOP
+390  NEXT J                          : REM SWITCH CASE EXITS HERE, GO TO NEXT J IN FOR LOOP
 400  PRINT ""
 410 NEXT K
 420 PRINT "Done. ";W;"x";H;" M=";M
