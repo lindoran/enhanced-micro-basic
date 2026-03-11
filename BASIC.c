@@ -1045,6 +1045,7 @@ newline:
             else                    { suppress_nl = 0; break; }
         }
         if (!suppress_nl) putc('\n', fileout);
+        fflush(fileout);
         break; }
 
     /* ---- FOR v = init TO limit [STEP n] ------------------------------- */
