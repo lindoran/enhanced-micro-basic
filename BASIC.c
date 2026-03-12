@@ -363,7 +363,7 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #    define BUFFER_SIZE   80   /* trim 20 bytes vs default                  */
 #  endif
 #  ifndef SA_SIZE
-#    define SA_SIZE       64   /* strings rarely exceed 64 chars on small targets */
+#    define SA_SIZE       80   /* must be >= BUFFER_SIZE; string literals land here after buffering */
 #  endif
 #  ifndef NUM_VAR
 #    define NUM_VAR      130   /* A0..Z4 : 26*5, halves variable table RAM  */
@@ -396,6 +396,13 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #  ifndef SEG_SLOTS
 #    define SEG_SLOTS     16   /* [1]..[16] segment cache entries            */
 #  endif
+#endif
+
+/* SA_SIZE must be at least BUFFER_SIZE: a string literal is read into
+ * buffer[] first, then copied into sa1[].  If SA_SIZE < BUFFER_SIZE
+ * a long literal overflows sa1.                                          */
+#if SA_SIZE < BUFFER_SIZE
+#  error "SA_SIZE must be >= BUFFER_SIZE (string literals are buffered first)"
 #endif
 
 /* Control stack frame tags - outside bint range so never confused with data */
@@ -623,17 +630,6 @@ static void          num_string(bint value, char *ptr);
 static void          clear_pgm(void);
 static void          clear_vars(void);
 static ubint         get_var(void);
-static void          concat(char *dst, const char *a, const char *b);
-
-/* =======================================================================
- * concat() - replaces the Micro-C library built-in
- * ======================================================================= */
-static void concat(char *dst, const char *a, const char *b)
-{
-    while (*a) *dst++ = *a++;
-    while (*b) *dst++ = *b++;
-    *dst = '\0';
-}
 
 /* =======================================================================
  * Token / character classification helpers
@@ -1037,6 +1033,7 @@ newline:
 
     /* ---- GOSUB line ---------------------------------------------------- */
     case GOSUB :
+        if (ctl_ptr + 3 > CTL_DEPTH) error(6);  /* nesting overflow guard */
         ctl_stk[ctl_ptr++] = (bptr)runptr;
         ctl_stk[ctl_ptr++] = (bptr)cmdptr;
         ctl_stk[ctl_ptr++] = (bptr)_GOSUB;
@@ -1050,6 +1047,7 @@ newline:
     /* ---- RETURN -------------------------------------------------------- */
     case RETURN :
         pgm_only();
+        if (ctl_ptr < 3) error(6);                   /* underflow guard */
         if ((int)ctl_stk[--ctl_ptr] != _GOSUB) error(6);
         cmdptr = (char       *)ctl_stk[--ctl_ptr];
         runptr = (struct line_rec *)ctl_stk[--ctl_ptr];
@@ -1089,6 +1087,7 @@ newline:
         jj = eval();
         if (test_next(TOKEN(STEP))) ii = eval();
         skip_stmt();
+        if (ctl_ptr + 6 > CTL_DEPTH) error(6);  /* nesting overflow guard */
         ctl_stk[ctl_ptr++] = (bptr)runptr;  /* saved line ptr  */
         ctl_stk[ctl_ptr++] = (bptr)cmdptr;  /* saved cmd ptr   */
         ctl_stk[ctl_ptr++] = (bptr)ii;      /* step            */
@@ -1100,6 +1099,7 @@ newline:
     /* ---- NEXT [v] ------------------------------------------------------ */
     case NEXT :
         pgm_only();
+        if (ctl_ptr < 6) error(6);                   /* underflow guard */
         if ((int)ctl_stk[ctl_ptr-1] != _FOR) error(6);
         i  = (ubint)              ctl_stk[ctl_ptr-2];
         if (!is_l_end(skip_blank()))
@@ -1208,7 +1208,7 @@ newline:
         if (skip_blank() != '#') error(0);
         i = (ubint)chk_file(0);
         if (files[i]) error(8);
-        eval_char(); strcpy(buffer, sa1);
+        eval_char(); snprintf(buffer, sizeof(buffer), "%s", sa1);
         expect(',');
         eval_char();
         files[i] = fopen(buffer, sa1);
@@ -1244,6 +1244,17 @@ newline:
 
     /* ---- READ var[,...] ----------------------------------------------- */
     case READ :
+        /* If no ORDER has been issued, auto-find the first DATA line */
+        if (!readptr) {
+            struct line_rec *rp;
+            char *save_cmdptr = cmdptr;          /* preserve READ var list   */
+            for (rp = pgm_start; rp; rp = rp->Llink)
+                if ((tok_t)rp->Ltext[0] == TOKEN(DATA)) { readptr = rp; break; }
+            if (!readptr) error(11);             /* no DATA in program       */
+            cmdptr  = readptr->Ltext;
+            get_next();                          /* consume DATA token       */
+            dataptr = cmdptr;
+            cmdptr  = save_cmdptr; }             /* restore to READ var list */
         do {
             char  *save_cmd  = cmdptr;
             ubint  save_line = line;
@@ -1254,6 +1265,7 @@ newline:
             cmdptr = dataptr;
             if (!skip_blank()) {
                 readptr = readptr->Llink;
+                if (!readptr) error(11);             /* ran off end of DATA */
                 cmdptr  = readptr->Ltext;
                 if (get_next() != TOKEN(DATA)) error(11); }
             line = readptr->Lnumber;
@@ -1322,14 +1334,14 @@ newline:
     /* ---- SAVE ["name"] ------------------------------------------------- */
     case SAVE :
         direct_only();
-        if (skip_blank()) { eval_char(); concat(filename, sa1, ".BAS"); }
+        if (skip_blank()) { eval_char(); snprintf(filename, sizeof(filename), "%s.BAS", sa1); }
         { FILE *fp = fopen(filename, "wb");
           if (fp) { disp_pgm(fp, 0, (ubint)-1); fclose(fp); } }
         break;
 
     /* ---- LOAD "name" --------------------------------------------------- */
     case LOAD :
-        eval_char(); concat(filename, sa1, ".BAS");
+        eval_char(); snprintf(filename, sizeof(filename), "%s.BAS", sa1);
         { FILE *fp = fopen(filename, "rb");
           if (fp) {
               if (!mode) clear_vars();
@@ -1451,6 +1463,14 @@ static bint eval(void)
  * Two small stacks (operand bint[], operator int[]) handle precedence
  * without building a parse tree.  expr_type is 0 (numeric) or 1 (string)
  * on exit.
+ *
+ * Stack depth analysis: this language has only 3 priority levels
+ * (1=compare/add, 2=mul/div/mod, 3=bitwise).  The eager-reduce rule
+ * fires whenever the incoming op priority <= top-of-stack priority, so
+ * nptr can only grow when each new op is STRICTLY higher than the last.
+ * Maximum nptr within one call = 4 (sentinel + one per priority level).
+ * nstack[8] / ostack[8] therefore has 2x headroom.  The bounds guards
+ * below catch any future grammar extension that would break this.
  */
 static bint eval_sub(void)
 {
@@ -1464,12 +1484,15 @@ static bint eval_sub(void)
     nstack[++nptr] = get_value();
 
     if (expr_type) {
-        /* String expression: only + (concat) and =/< > (compare) valid */
+        /* String expression: only + (concat) and = <> (compare) valid */
         while (!is_e_end(c = skip_blank())) {
             int op = c & 0x7F;
             ++cmdptr;
             get_char_value(sa2);
-            if      (op == ADD) { strcat(sa1, sa2); }
+            if      (op == ADD) {
+                /* Guard: combined length must fit in sa1 */
+                if (strlen(sa1) + strlen(sa2) + 1 > SA_SIZE) error(12);
+                strcat(sa1, sa2); }
             else if (op == EQ)  { nstack[nptr] = (bint)(!strcmp(sa1,sa2)); expr_type=0; }
             else if (op == NE)  { nstack[nptr] = (bint)(strcmp(sa1,sa2)!=0); expr_type=0; }
             else                { error(0); } }
@@ -1482,6 +1505,7 @@ static bint eval_sub(void)
             if ((ubint)priority[op] <= (ubint)priority[ostack[optr]]) {
                 rhs          = nstack[nptr--];
                 nstack[nptr] = do_arith(ostack[optr--], nstack[nptr], rhs); }
+            if (nptr >= 7 || optr >= 7) error(13); /* should never fire: see above */
             nstack[++nptr] = get_value();
             if (expr_type) error(0);
             ostack[++optr] = op; }
@@ -1599,7 +1623,15 @@ static void get_char_value(char *ptr)
     tok_t c = get_next();
 
     if (c == '"') {                     /* string literal                   */
-        while ((*ptr = *cmdptr++) != '"') { if (!*ptr) error(0); ++ptr; }
+        /* Literal content is bounded by BUFFER_SIZE (fgets input limit).
+         * SA_SIZE >= BUFFER_SIZE is enforced at build time, so ptr (which
+         * points into sa1 or sa2, both SA_SIZE bytes) has room.  The guard
+         * below catches any path that might violate this in the future.    */
+        ubint slen = 0;
+        while ((*ptr = *cmdptr++) != '"') {
+            if (!*ptr) error(0);            /* unterminated literal          */
+            if (++slen >= SA_SIZE) error(12); /* literal too long            */
+            ++ptr; }
         *ptr = '\0';
     } else if (isalpha((unsigned char)c)) { /* string variable             */
         --cmdptr;
@@ -1607,6 +1639,7 @@ static void get_char_value(char *ptr)
           const char *p;
           if (!expr_type) error(0);
           p = char_vars[idx];
+          if (p && strlen(p) >= SA_SIZE) error(12); /* should never happen  */
           strcpy(ptr, p ? p : ""); }
     } else if (c == TOKEN(CHR)) {       /* CHR$(n)                          */
         *ptr++ = (char)(ubint)eval_sub();
@@ -1720,6 +1753,7 @@ static ubint get_var(void)
     if (c == '$') { ++cmdptr; expr_type = 1; }
     else          {           expr_type = 0; }
 
+    if (index >= NUM_VAR) error(0);  /* variable out of range for this build */
     return index;
 }
 
@@ -1752,14 +1786,17 @@ int main(int argc, char *argv[])
     tok_t tok;
 
     /*
-     * Copy command-line args into A0$, A1$... via strdup so clear_vars()
-     * can safely free them.  argv[0] is the interpreter; BASIC args start
-     * at argv[1].
+     * Copy command-line args into A0$, A1$... so the running program can
+     * read them.  argv[0] is the interpreter name; BASIC args start at
+     * argv[1] -> A0$, argv[2] -> A1$, etc.
+     * allocate() zero-fills and calls error(12) on failure; clear_vars()
+     * will free these safely because it checks for non-NULL before freeing.
      */
     pgm_start = NULL;
     pgm_end   = NULL;
-    for (j = 0, i = 1; i < argc; ++i, ++j) {
-        if (char_vars[j]) strcpy(char_vars[j], argv[i]); }
+    for (j = 0, i = 1; i < argc && j < NUM_VAR; ++i, ++j) {
+        char_vars[j] = allocate((ubint)(strlen(argv[i]) + 1));
+        strcpy(char_vars[j], argv[i]); }
 
     /*
      * If argv[1] names a file, load and run it silently before the banner.
