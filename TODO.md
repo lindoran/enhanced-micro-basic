@@ -5,7 +5,16 @@ Each item references the tag used in source comments for easy searching.
 
 ## Optimization pass
 Perform a optimization pass for 2.3 to decrease size of program, and get ready for 
-smaller targets.
+smaller targets and 3.0
+
+memory safety with a low cost: 
+ - do what we can to improve memory safety by changing code in low cost ways
+ - ernest is still on the programmer to be smart.
+
+look at library inclusion (especially in ia16)
+ - can we code around single use case? (safely!)
+ - look for ways to save on runtime size (its about a 50K exe file!)
+ - look for runtime optimizaitons that are low cost, in terms of program size.
 
 table look ups could be simplified to only scan 3 - 4 characters like MS basic does
  - smaller tables, less memory
@@ -28,23 +37,13 @@ symbol shorthand
 
 Look at eliminating line numbers?  CBA (what is the reason they are there, scanning etc...)
 
+Protected range array addressing
+ - define a memory segment as a pointer and its size (like a dim varable) 
+ - can be used like POKE and PEEK is used but with guard rails.  This specifically will need to tie back into
+   malloc for bounds checking etc OR the limits will need to be specified by the target.  
+ - this is usefull for small targets were display area is a file in memory, or direct device access. 
+ - inside limit is within a 16 bit refrence, but pointers are actual locations (ie the window can only be 16 bits big)
 
-## Closed — Won't Fix in 2.x
-
-### `TODO(peek)` / `TODO(poke)` — Memory access
-
-**Closed.** PEEK/POKE made sense in the 8-bit era where the memory map was
-the hardware. On DOS the use case is thin and on Linux/Windows meaningless.
-On embedded targets the right approach is to write device-specific C, not
-route hardware access through a BASIC interpreter.
-
-INP/OUT remains — 8-bit port I/O is real and meaningful on DOS and will map
-naturally to GPIO/peripheral buses on embedded targets.
-
-PEEK/POKE will not be implemented in 2.x. Revisit only if a specific embedded
-port has a clear use case for it.
-
----
 
 ## Deferred to 3.0 — Embedded / Arduino Port
 
