@@ -20,6 +20,7 @@ can save the program as symbols vs full text, and only display:
  - symbols in memory for runtime, offline is plaintext and is converted when loaded.
 
 ia16 .com vs .exe (CBA which is better or needed?)
+
 symbol shorthand
  - '?' for print etc ';' comments 
  - comments dont require a : to seperate or diliminate when stored this way
