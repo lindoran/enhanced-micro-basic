@@ -1,5 +1,5 @@
 /*
- * ENHANCED MICRO-BASIC 2.2
+ * ENHANCED MICRO-BASIC
  *
  * A small INTEGER BASIC interpreter originally written by Dave Dunfield,
  * subsequently ported to MICRO-C, then modernized for GCC / ia16-elf-gcc
@@ -116,6 +116,11 @@
 #define FORK_VER_MINOR   3
 #define BASE_VER_STR     "Micro-Basic 2.1"
 #define BUILD_YEAR       "2026"
+
+/* Stringify helpers - expand integer defines to string literals at compile time.
+ * MKSTR(FORK_VER_MAJOR) -> "2",  used in banner to avoid printf %d.           */
+#define XSTR(x) #x
+#define MKSTR(x) XSTR(x)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -627,6 +632,11 @@ static bint          get_value(void);
 static void          get_char_value(char *ptr);
 static bint          do_arith(int opr, bint op1, bint op2);
 static void          num_string(bint value, char *ptr);
+static void          hex_string(ubint value, char *ptr);
+static void          uns_string(ubint value, char *ptr);
+static void          put_uint(FILE *fp, ubint value);
+static void          safe_copy(char *dst, const char *src, ubint dstsize);
+static void          safe_cat(char *dst, const char *src, ubint dstsize);
 static void          clear_pgm(void);
 static void          clear_vars(void);
 static ubint         get_var(void);
@@ -1073,7 +1083,7 @@ newline:
             else                    { suppress_nl = 0; break; }
         }
         if (!suppress_nl) putc('\n', fileout);
-        fflush(fileout);
+        fflush(fileout); /* HAL(3.0): no-op or serial tx flush */
         break; }
 
     /* ---- FOR v = init TO limit [STEP n] ------------------------------- */
@@ -1150,7 +1160,8 @@ newline:
     /* ---- STOP ---------------------------------------------------------- */
     case STOP :
         pgm_only();
-        printf("STOP in line %u\n", (unsigned)line);
+        /* HAL(3.0): replace with serial tx */
+        fputs("STOP in line ", stdout); put_uint(stdout, (ubint)line); putc('\n', stdout);
         /* fall through */
 
     /* ---- END ----------------------------------------------------------- */
@@ -1172,8 +1183,8 @@ newline:
         save_cmd = cmdptr;
 
         for (;;) {                          /* retry loop for bad numeric input */
-            if (from_file == -1) fputs(sa1, stdout);
-            { char *r = fgets(buffer, (int)(sizeof(buffer)-1), filein);
+            if (from_file == -1) fputs(sa1, stdout); /* HAL(3.0): serial tx prompt */
+            { char *r = fgets(buffer, (int)(sizeof(buffer)-1), filein); /* HAL(3.0): serial rx line */
               if (!r) buffer[0] = '\0'; }     /* EOF or error -> empty buffer */
 
             if (vtype) {                    /* string input */
@@ -1192,7 +1203,7 @@ newline:
                 if (test_next(TOKEN(SUB))) neg = 1;
                 if (!isdigit((unsigned char)*cmdptr)) {
                     if (from_file != -1) error(9);
-                    fputs("Input error\n", stdout);
+                    fputs("Input error\n", stdout); /* HAL(3.0): serial tx */
                     continue; }             /* retry */
                 j      = get_num();
                 cmdptr = save_cmd;
@@ -1208,17 +1219,17 @@ newline:
         if (skip_blank() != '#') error(0);
         i = (ubint)chk_file(0);
         if (files[i]) error(8);
-        eval_char(); snprintf(buffer, sizeof(buffer), "%s", sa1);
+        eval_char(); safe_copy(buffer, sa1, (ubint)sizeof(buffer));
         expect(',');
         eval_char();
-        files[i] = fopen(buffer, sa1);
+        files[i] = fopen(buffer, sa1); /* HAL(3.0): no filesystem — stub or remove */
         break;
 
     /* ---- CLOSE#n ------------------------------------------------------- */
     case CLOSE :
         i = (ubint)chk_file(1);
         if (!filein) error(8);
-        fclose(files[i]); files[i] = NULL;
+        fclose(files[i]); files[i] = NULL; /* HAL(3.0): stub or remove */
         break;
 
     /* ---- DIM var(size)[,...] ------------------------------------------ */
@@ -1310,6 +1321,7 @@ newline:
         (void)sa1;
 #   endif
 #else
+        /* HAL(3.0): no OS shell on bare metal — no-op or remove DOS statement */
         { int r = system(sa1); (void)r; }
 #endif
         break;
@@ -1334,14 +1346,16 @@ newline:
     /* ---- SAVE ["name"] ------------------------------------------------- */
     case SAVE :
         direct_only();
-        if (skip_blank()) { eval_char(); snprintf(filename, sizeof(filename), "%s.BAS", sa1); }
+        if (skip_blank()) { eval_char(); safe_copy(filename, sa1, (ubint)sizeof(filename)); safe_cat(filename, ".BAS", (ubint)sizeof(filename)); }
+        /* HAL(3.0): no filesystem — SAVE via serial (XMODEM or plain text) */
         { FILE *fp = fopen(filename, "wb");
           if (fp) { disp_pgm(fp, 0, (ubint)-1); fclose(fp); } }
         break;
 
     /* ---- LOAD "name" --------------------------------------------------- */
     case LOAD :
-        eval_char(); snprintf(filename, sizeof(filename), "%s.BAS", sa1);
+        eval_char(); safe_copy(filename, sa1, (ubint)sizeof(filename)); safe_cat(filename, ".BAS", (ubint)sizeof(filename));
+        /* HAL(3.0): no filesystem — LOAD via serial (XMODEM or plain text paste) */
         { FILE *fp = fopen(filename, "rb");
           if (fp) {
               if (!mode) clear_vars();
@@ -1386,7 +1400,7 @@ static void disp_pgm(FILE *fp, ubint i, ubint j)
     for (p = pgm_start; p; p = p->Llink) {
         k = p->Lnumber;
         if (k >= i && k <= j) {
-            fprintf(fp, "%u ", (unsigned)k);
+            put_uint(fp, (ubint)k); putc(' ', fp);
             for (k = 0; (c = (tok_t)p->Ltext[k]) != 0; ++k) {
                 if (c < 0) {
                     int         idx  = (c & 0x7F) - 1;
@@ -1422,8 +1436,10 @@ static void skip_stmt(void)
  * ======================================================================= */
 static void error(ubint en)
 {
-    printf("%s error", RD_PTR(&error_messages[en]));
-    if (mode) printf(" in line %u", (unsigned)line);
+    /* HAL(3.0): replace stdout writes with serial tx */
+    fputs(RD_PTR(&error_messages[en]), stdout);
+    fputs(" error", stdout);
+    if (mode) { fputs(" in line ", stdout); put_uint(stdout, (ubint)line); }
     putc('\n', stdout);
     longjmp(savjmp, 1);
 }
@@ -1651,11 +1667,11 @@ static void get_char_value(char *ptr)
     } else if (c == TOKEN(HEX)) {       /* HEX$(n) -> uppercase hex string  */
         ubint uval = (ubint)eval_sub();
         if (expr_type) error(4);
-        sprintf(ptr, "%X", (unsigned)uval);
+        hex_string(uval, ptr);
     } else if (c == TOKEN(UNS)) {       /* UNS$(n) -> unsigned decimal str  */
         ubint uval = (ubint)eval_sub();
         if (expr_type) error(4);
-        sprintf(ptr, "%u", (unsigned)uval);
+        uns_string(uval, ptr);
     } else { error(0); }
 
     expr_type = 1;
@@ -1704,6 +1720,74 @@ static void num_string(bint value, char *ptr)
     do { cstack[cptr++] = (char)(uval % 10 + '0'); } while ((uval /= 10) != 0);
     while (cptr) *ptr++ = cstack[--cptr];
     *ptr = '\0';
+}
+
+/*
+ * hex_string() - convert ubint to uppercase hex ASCII (no prefix).
+ * buf must be at least 5 bytes (4 hex digits + NUL).
+ * Replaces sprintf(ptr, "%X", uval) — no printf dependency.
+ */
+static void hex_string(ubint value, char *ptr)
+{
+    char  cstack[4];
+    int   cptr = 0;
+    do {
+        ubint digit = value & 0xF;
+        cstack[cptr++] = (char)(digit < 10 ? digit + '0' : digit - 10 + 'A');
+        value >>= 4;
+    } while (value);
+    while (cptr) *ptr++ = cstack[--cptr];
+    *ptr = '\0';
+}
+
+/*
+ * uns_string() - convert ubint to unsigned decimal ASCII.
+ * buf must be at least 6 bytes (5 digits + NUL for 65535).
+ * Replaces sprintf(ptr, "%u", uval) — no printf dependency.
+ */
+static void uns_string(ubint value, char *ptr)
+{
+    char  cstack[5];
+    int   cptr = 0;
+    do { cstack[cptr++] = (char)(value % 10 + '0'); } while ((value /= 10) != 0);
+    while (cptr) *ptr++ = cstack[--cptr];
+    *ptr = '\0';
+}
+
+/*
+ * put_uint() - write a ubint as decimal digits to a stdio stream.
+ * Replaces fprintf(fp, "%u", val) — no printf formatter dependency.
+ */
+static void put_uint(FILE *fp, ubint value)
+{
+    char buf[6];
+    uns_string(value, buf);
+    fputs(buf, fp);
+}
+
+/*
+ * safe_copy() - bounded string copy; always NUL-terminates dst.
+ * Replaces snprintf(dst, size, "%s", src).
+ */
+static void safe_copy(char *dst, const char *src, ubint dstsize)
+{
+    ubint i = 0;
+    if (!dstsize) return;
+    while (src[i] && i < dstsize - 1) { dst[i] = src[i]; i++; }
+    dst[i] = '\0';
+}
+
+/*
+ * safe_cat() - bounded string append; always NUL-terminates dst.
+ * Replaces snprintf(dst, size, "%s%s", dst, src) patterns.
+ */
+static void safe_cat(char *dst, const char *src, ubint dstsize)
+{
+    ubint i = 0;
+    if (!dstsize) return;
+    while (dst[i] && i < dstsize - 1) i++;   /* find end of dst */
+    while (*src   && i < dstsize - 1) dst[i++] = *src++;
+    dst[i] = '\0';
 }
 
 /* =======================================================================
@@ -1801,32 +1885,38 @@ int main(int argc, char *argv[])
     /*
      * If argv[1] names a file, load and run it silently before the banner.
      * Programs terminating with EXIT produce no extra output.
+     * HAL(3.0): argc/argv don't exist on bare metal — remove this block;
+     *           auto-run a fixed program address or wait for serial LOAD instead.
      */
     if (argc > 1) {
         FILE *fp;
-        snprintf(filename, sizeof(filename), "%s.BAS", argv[1]);
-        if ((fp = fopen(filename, "rb")) != NULL) {
+        safe_copy(filename, argv[1], (ubint)sizeof(filename));
+        safe_cat(filename, ".BAS", (ubint)sizeof(filename));
+        if ((fp = fopen(filename, "rb")) != NULL) { /* HAL(3.0): no filesystem */
             while (fgets(buffer, (int)(sizeof(buffer)-1), fp)) edit_program();
             fclose(fp);
             if (!setjmp(savjmp)) execute((tok_t)RUN1);
-            exit(0);
+            exit(0); /* HAL(3.0): replace with infinite loop or watchdog reset */
         } else {
-            fprintf(stderr, "Cannot open: %s\n", filename);
-            exit(1);
+            fputs("Cannot open: ", stderr); /* HAL(3.0): serial tx */
+            fputs(filename, stderr);
+            putc('\n', stderr);
+            exit(1); /* HAL(3.0): replace with infinite loop or watchdog reset */
         } }
 
-    printf("%s %d.%d  (based on %s)\n",
-           FORK_NAME, FORK_VER_MAJOR, FORK_VER_MINOR, BASE_VER_STR);
-    printf("Copyright 1982-2003 Dave Dunfield. "
-           "Modernized for GCC / ia16 / MinGW, %s.\n", BUILD_YEAR);
+    /* HAL(3.0): replace stdout writes with serial tx */
+    fputs(FORK_NAME " " MKSTR(FORK_VER_MAJOR) "." MKSTR(FORK_VER_MINOR)
+          "  (based on " BASE_VER_STR ")\n", stdout);
+    fputs("Copyright 1982-2003 Dave Dunfield. "
+          "Modernized for GCC / ia16 / MinGW, " BUILD_YEAR ".\n", stdout);
 
     setjmp(savjmp);
     for (;;) {
-        fputs("Ready\n", stdout);
+        fputs("Ready\n", stdout); /* HAL(3.0): serial tx */
 noprompt:
         mode    = 0;
         ctl_ptr = 0;
-        { char *r = fgets(buffer, (int)(sizeof(buffer)-1), stdin); (void)r; }
+        { char *r = fgets(buffer, (int)(sizeof(buffer)-1), stdin); (void)r; } /* HAL(3.0): serial rx line */
         if (edit_program()) goto noprompt;
         tok = skip_blank();
         if (IS_TOK(tok)) { ++cmdptr; execute(tok); }

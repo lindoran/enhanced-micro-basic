@@ -1,85 +1,132 @@
-# MICRO-BASIC 2.2 — TODO
+# ENHANCED MICRO-BASIC — TODO
 
-Items are grouped by complexity and listed in recommended implementation order.
-Each item references the tag used in source comments for easy searching.
+---
 
-## Optimization pass
-Perform a optimization pass for 2.3 to decrease size of program, and get ready for 
-smaller targets and 3.0
+## 2.3 — COMPLETED
 
-memory safety with a low cost: 
- - do what we can to improve memory safety by changing code in low cost ways
- - check for bugs, garanteed overflows etc.
- - look for buffer size ineficencies
- - ernest is still on the programmer to be smart, but gardrail clifs.
+### Memory safety pass 
+All critical and high-priority safety issues resolved:
 
-look at library inclusion (especially in ia16)
- - can we code around single use case? (safely!)
- - look for ways to save on runtime size (its about a 50K exe file!)
- - look for runtime optimizaitons that are low cost, in terms of program size.
- - look for common theam system buffers we can use from the OS that cost nothing, 
-   variable space, entry buffers etc.. call out these where we have to replace
-   them on other platforms.
- - start a seprate .md for Embeded/ROM acception so we can work twards a mark
-   list for what is needed to port. 
- - .com vs .exe on ia16 small target?
+- **GOSUB/FOR stack overflow** — guard added before push (`ctl_ptr + N > CTL_DEPTH`)
+- **RETURN/NEXT stack underflow** — guard added before pop
+- **`get_var()` out of bounds** — index clamped to `NUM_VAR` on all build sizes
+- **READ NULL deref** — auto-finds first DATA line if no ORDER issued; NULL check on `Llink` advance
+- **`strcat` overflow in string concat** — length check before combining, error(12) on overflow
+- **`SA_SIZE < BUFFER_SIZE`** — enforced as a compile-time `#error`; SMALL_TARGET default corrected
+- **`eval_sub` local stacks** — bounds guard added; depth analysis documented in comment
+- **`get_char_value` literal loop** — length guard added; invariant documented
+- **argv copy was dead code** — `if (char_vars[j])` always false on zero-init static; fixed to
+  `allocate()` + `strcpy`; added `j < NUM_VAR` bound
+- **`concat()` into filename** — replaced with `safe_copy()` + `safe_cat()`; old `concat()`
+  function removed entirely
+- **`strcpy(buffer, sa1)` in OPEN** — replaced with `safe_copy()` now that SA_SIZE >= BUFFER_SIZE
 
-lexer table look ups could be simplified to only scan 3 - 4 characters like MS basic does
- - smaller tables, less memory
- - error plaintext vs codes (offline storage on small targets?)
+### Library / printf elimination 
+All `printf`, `fprintf`, `sprintf`, `snprintf` calls removed from the codebase.
+Replaced with:
+- `hex_string()` — hand-rolled ubint to uppercase hex, replaces `sprintf("%X",...)`
+- `uns_string()` — hand-rolled ubint to unsigned decimal, replaces `sprintf("%u",...)`
+- `put_uint()` — writes ubint to any FILE stream, replaces `fprintf(fp, "%u", ...)`
+- `safe_copy()` / `safe_cat()` — bounded string copy/append, replace all `snprintf` filename patterns
+- Banner reduced to a single `fputs` of compile-time string literals via `MKSTR()` macros
 
-can save the program as symbols vs full text, and only display:
- - comments from offline storage as needed
- - symbol fulltext from offline storage as needed (LIST, SAVE etc ...)
- - means a offline program space would be required to define after first numbered line is entered
-   or the system would have to load a blank workspace, like office does and then save
-   would copy from it.
- - text line buffer stores a number of lines defined by build before cashed to disk
-   - This can be adjuseted in the interperater.
- - symbols in memory for runtime, offline is plaintext and is converted when loaded.
- - large targets could host both a plaintext file, and a codespace depending on how 
-   these offsets are configured.
+`printf` is confirmed absent from the linked binary (`nm` verified).
+Remaining stdio dependency is `fgets`, `fopen`, `fclose`, `fputs`, `putc`, `fflush` — all simple
+stream ops that are straightforward to stub for 3.0.
 
-symbol shorthand
- - '?' for print etc ';' comments 
- - comments dont require a : to seperate or diliminate when stored this way
- - line drops in scanner / lexer when encountered.
+### DOS target clarified 
+SMALL_TARGET is **not** a DOS build flag. A standard PC DOS environment has 256-640K of
+conventional memory — ample for the normal build. The `dos-small` Makefile target has been
+removed. SMALL_TARGET is reserved exclusively for the 3.0 embedded port.
 
-Look at eliminating line numbers?  CBA (what is the reason they are there, scanning etc...)
+`.com` vs `.exe` investigated: not viable without shedding ~10K of interpreter code,
+which would require removing features. Not pursued. DOS target stays `.exe`.
 
-Protected range array addressing
- - define a memory segment as a pointer and its size (like a dim varable) 
- - can be used like POKE and PEEK is used but with guard rails.  This specifically will need to tie back into
-   malloc for bounds checking etc OR the limits will need to be specified by the target.  
- - this is usefull for small targets were display area is a file in memory, or direct device access. 
- - inside limit is within a 16 bit refrence, but pointers are actual locations (ie the window can only be 16 bits big)
+### Makefile updated 
+- Version bumped to 2.3
+- `dos-small` target removed
+- Double `all:` definition fixed — `all` = linux default, `build-all` = all platforms
+- BNF grammar file now staged into every distribution package
+- SMALL_TARGET scoped comment added
 
+---
 
-## Deferred to 3.0 — Embedded / Arduino Port
+## Open — 2.x candidates
 
-### `TODO(fre)` — `FRE()` function and memory reporting
+These items are within scope for a future 2.x release but require design decisions
+before implementation. None are blocking for 2.3.
 
-**Deferred.** `FRE()` requires a meaningful free heap figure. On Linux/Windows
-this is pointless. On ia16 DOS the newlib heap accounting does not reflect
-conventional memory correctly. On bare metal targets (AVR, Z80) malloc is a
-simple bump allocator into known RAM and `FRE()` would work correctly and be
-genuinely useful.
+### Lexer table simplification
+Keyword scan could stop at 3-4 characters (like MS BASIC) rather than matching full
+keyword strings. Benefits: smaller token tables, less memory on small targets.
+Related question: error messages as plain text vs numeric codes — plain text is
+currently in `.rodata`; codes with an offline message table would save RAM on
+embedded targets but is a 3.0 concern, not 2.x.
 
-Implement in 3.0 when there is an actual bare metal target to test against.
-At that point the workspace model may also change — a fixed allocation at
-startup rather than dynamic malloc throughout — which makes `FRE()` trivial
-pointer arithmetic rather than a heap query.
+### Symbol shorthand
+- `?` as alias for PRINT
+- `;` for comments (no `:` separator required)
+- Comment lines dropped by scanner/lexer, never stored
 
-### 3.0 General Notes
+### Protected range array addressing
+A memory window type: pointer + size, like a DIM variable but mapping to a fixed
+address range. Useful for small targets where display RAM or device registers are
+memory-mapped. Bounds checking via the declared window size.
+- Window interior limited to 16-bit reference; pointers are actual addresses
+- On hosted targets would tie back into malloc for bounds checking
+- On bare metal the limits are target-specified
 
-3.0 targets a specific small device (ATmega2560 or similar). It is not a
-bolt-on to the current codebase — it is a fresh look at what the interpreter
-needs to be on that hardware:
+### Compressed / symbol program storage
+Deferred from 2.3 — architectural change, not a patch.
+Store tokenised symbols in RAM, plaintext only on disk. LIST/SAVE reconstitute
+plaintext from the symbol stream. REM text and keyword fulltext stored offline.
+Large targets could host both forms depending on build configuration.
+This is closely related to 3.0 workspace model decisions — better addressed there.
 
+### Line number elimination
+CBA (cost/benefit analysis needed). Line numbers currently serve as the sort key
+for the linked list and the target for GOTO/GOSUB resolution. Removing them means
+a label/symbol table. Non-trivial. Likely a 3.0 decision given other changes.
+
+---
+
+## Deferred to 3.0 — Embedded / Bare Metal Port
+
+3.0 targets a specific small device (ATmega2560 or similar). It is **not** a
+bolt-on to the current codebase — it is a fresh design starting from the hardware
+constraints and working backward.
+
+### I/O HAL replacement
+The remaining stdio dependency (`fgets`, `fopen`, `fclose`, `fputs`, `putc`, `fflush`)
+must be replaced with a target HAL for bare metal. A serial-only build (no file I/O)
+is the expected first 3.0 configuration. See **PORTING.md** for the full checklist.
+
+### `TODO(fre)` — FRE() function
+`FRE()` requires a meaningful free heap figure. On Linux/Windows this is pointless.
+On ia16 DOS the newlib heap accounting does not reflect conventional memory correctly.
+On bare metal (AVR, Z80) malloc is a simple bump allocator into known RAM and `FRE()`
+would work correctly and be genuinely useful.
+
+Implement in 3.0. At that point the workspace model may change to a fixed allocation
+at startup rather than dynamic malloc throughout, making `FRE()` trivial pointer
+arithmetic rather than a heap query.
+
+### RNG for 8-bit targets
+`rand()` is not available on bare metal. Replace with an XOR-shift generator.
+Will need a seed stub appropriate to the target (no `time(NULL)` on AVR).
+See `TODO: XOR SHIFT` comment in `get_value()`.
+
+### Workspace model
+Decide between linked list program storage (current) vs flat buffer for bare metal.
+Current model uses `malloc` throughout — not viable on a fixed-RAM target without
+a bump allocator. Full variable set (260 numeric, 260 string, 260 array) may not
+be realistic depending on RAM budget. See PORTING.md.
+
+### General 3.0 questions
 - What fits in flash
-- What the RAM budget is
+- What the RAM budget actually is on the chosen target
 - Whether the linked list program storage makes sense or a flat buffer is better
-- Whether the full variable set (260 numeric, 260 string, 260 array) is realistic
+- Whether the full variable set is realistic
 - What the right workspace model is (fixed allocation vs dynamic malloc)
 
 2.x is feature-stable. 3.0 starts from the hardware and works backward.
