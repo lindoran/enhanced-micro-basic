@@ -9,15 +9,25 @@ smaller targets and 3.0
 
 memory safety with a low cost: 
  - do what we can to improve memory safety by changing code in low cost ways
- - ernest is still on the programmer to be smart.
+ - check for bugs, garanteed overflows etc.
+ - look for buffer size ineficencies
+ - ernest is still on the programmer to be smart, but gardrail clifs.
 
 look at library inclusion (especially in ia16)
  - can we code around single use case? (safely!)
  - look for ways to save on runtime size (its about a 50K exe file!)
  - look for runtime optimizaitons that are low cost, in terms of program size.
+ - look for common theam system buffers we can use from the OS that cost nothing, 
+   variable space, entry buffers etc.. call out these where we have to replace
+   them on other platforms.
+ - start a seprate .md for Embeded/ROM acception so we can work twards a mark
+   list for what is needed to port. 
+ - .com vs .exe on ia16 small target?
 
-table look ups could be simplified to only scan 3 - 4 characters like MS basic does
+lexer table look ups could be simplified to only scan 3 - 4 characters like MS basic does
  - smaller tables, less memory
+ - error plaintext vs codes (offline storage on small targets?)
+
 can save the program as symbols vs full text, and only display:
  - comments from offline storage as needed
  - symbol fulltext from offline storage as needed (LIST, SAVE etc ...)
@@ -27,8 +37,8 @@ can save the program as symbols vs full text, and only display:
  - text line buffer stores a number of lines defined by build before cashed to disk
    - This can be adjuseted in the interperater.
  - symbols in memory for runtime, offline is plaintext and is converted when loaded.
-
-ia16 .com vs .exe (CBA which is better or needed?)
+ - large targets could host both a plaintext file, and a codespace depending on how 
+   these offsets are configured.
 
 symbol shorthand
  - '?' for print etc ';' comments 
