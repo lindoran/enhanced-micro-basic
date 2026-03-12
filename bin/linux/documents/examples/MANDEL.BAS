@@ -3,11 +3,9 @@
 3 REM Q8: 1.0=256  2.0=512  -2.5=-640
 4 REM Escape: |z|^2 > 4  =>  P+Q > 1024
 5 REM =====================================================
-6 REM ** Segments Table Optimizers **
-7 SEG [1]=1000        :REM fp_mul: R=(G*N)>>8  signed Q8 multiply
-8 SEG [2]=230         :REM Print Pixels: 0-7 = " .:-+*#@"
-9 SEG [3]=390         :REM Exit from pixel printing
-10 SEG [4]=110        :REM Main Loop Start
+6 SEG [1]=1000       :REM fp_mul: R=(G*N)>>8  signed Q8 multiply
+7 SEG [2]=230        :REM Print Pixels: 0-7 = " .:-+*#@"
+8 SEG [3]=390        :REM Exit from pixel printing
 20 W=59:H=22:M=16
 30 A=-640:B=256:E=-275:F=275
 40 U=(B-A)/W
@@ -17,19 +15,19 @@
 80   FOR J=0 TO W
 90     C=A+(J*U)
 100    X=0:Y=0:I=0
-110    G=X:N=X:GOSUB [1]:P=R :REM fp_mul: P = (X*X)>>8 (line 1000)
+110    G=X:N=X:GOSUB [1]:P=R
 120    G=Y:N=Y:GOSUB [1]:Q=R
-130    IF I>=M THEN +8       :REM While I>=M
-140       IF (P+Q)>1024 THEN +7 :REM Inner While (P+Q)>1024
-150         T=P-Q+C
-160         G=X:N=Y:GOSUB [1]
-170         Y=R+R+D
-180         X=T
-190         I=I+1
-200         GOTO [4]             :REM do.. loops 110 (both loops) 
-210    O=I&7                  
-220    GOTO [2]+O           :REM Pixel Printer Jump Table
-230    PRINT " ";:GOTO [3]  :REM Pixel 0 - Jumps to line 390 to exit pixel printing
+130    IF I>=M THEN +8
+140    IF (P+Q)>1024 THEN +7
+150    T=P-Q+C
+160    G=X:N=Y:GOSUB [1]
+170    Y=R+R+D
+180    X=T
+190    I=I+1
+200    GOTO 110
+210    O=I&7
+220    GOTO [2]+O 
+230    PRINT " ";:GOTO [3]
 240    PRINT ".";:GOTO [3]
 250    PRINT ":";:GOTO [3]
 260    PRINT "-";:GOTO [3]
@@ -37,7 +35,7 @@
 280    PRINT "*";:GOTO [3]
 290    PRINT "#";:GOTO [3]
 300    PRINT "@";
-390  NEXT J                 :REM exit from pixel printing loop
+390  NEXT J
 400  PRINT ""
 410 NEXT K
 420 PRINT "Done. ";W;"x";H;" M=";M

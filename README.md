@@ -73,6 +73,47 @@ PRINT "done"
 
 Backward relative jumps (`-n`) are not supported and produce a syntax error. Line-counting always starts from the line containing the jump statement; `+1` skips one line forward.
 
+#### Segments 
+You can add program segments to a jump cache, which allows for faster jump refrence than direct / literal jumps with line numbers.  These can be combined with a relitive offset, either directly or with a variable creating a way to do complex jump tables and more complex logic based recursion.  This also provides a way of doing reverse refrence recursion.
+
+a segment is defined (SEG [n] = line number):
+
+```basic
+1 REM *** USUAL USEAGE: ***  
+2 SEG [1] = 1000             :REM Subroutine N+1
+5 Let N = 1
+10 PRINT "Count up: "
+20 PRINT N
+30 GOSUB [1]                 : REM SUB is N+1  Line 1000
+40 IF N < 10 THEN GOTO 20    : REM IF N is not more than 10
+50 END
+60 REM **** SUBROUTINE N+1 ******
+1000 LET N = N+1 
+1001 RETURN    
+
+```
+But also allowing for making a jump table:
+
+```basic
+1 REM *** CODE SNIP FROM MANDELBROT EXAMPLE ***
+2 REM *** EARLY IN PROGRAM SEG STATEMENTS: 
+3 SEG [2] = 230   :REM Pixel Printer, represents a diferent level of recursion
+4 SEG [3] = 390   :REM EXIT point, this could also be a relitive jump with manual calculation.
+
+205  REM Later on...
+210  O=I&7                  
+220    GOTO [2]+O           :REM Pixel Printer Jump Table
+230    PRINT " ";:GOTO [3]  :REM Pixel 0 - Jumps to line 390 to exit pixel printing
+240    PRINT ".";:GOTO [3]
+250    PRINT ":";:GOTO [3]
+260    PRINT "-";:GOTO [3]
+270    PRINT "+";:GOTO [3]
+280    PRINT "*";:GOTO [3]
+290    PRINT "#";:GOTO [3]
+300    PRINT "@";
+390  NEXT J                 :REM exit from pixel printing loop
+```
+
 ### Hardware
 
 - `BEEP freq, ms` — PC speaker tone (real-mode DOS targets)

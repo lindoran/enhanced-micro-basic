@@ -26,6 +26,8 @@
                   | "+" <digits>                  ; relative forward: skip n lines from current
                                                   ; n must be 1..127
                                                   ; "-" is a syntax error (backward not supported)
+                  | "[" <digits> "]"              ; segment cache slot jump
+                  | "[" <digits> "]" "+" <digits> ; segment cache slot + relative offset
 
 <direct>        ::= <statement>                   ; typed without a line number
 
@@ -63,6 +65,7 @@
                   | <return-stmt>
                   | <run-stmt>
                   | <save-stmt>
+                  | <seg-stmt>
                   | <stop-stmt>
 
 ; LET is the default: the keyword is optional
@@ -143,6 +146,10 @@
 <run-stmt>      ::= "RUN" [ <line-number> ] ; direct only; clears variables
 
 <save-stmt>     ::= "SAVE" [ <str-expr> ]   ; direct only; saves name.BAS
+
+<seg-stmt>      ::= "SEG" "[" <digits> "]" "=" <line-number>
+                                        ; register segment cache slot [n] = lineno
+                                        ; n must be 1..16 (or 1..8 on SMALL_TARGET)
 
 <stop-stmt>     ::= "STOP"              ; print message and halt (program only)
 

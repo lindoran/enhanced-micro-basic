@@ -212,6 +212,7 @@ Supported parameters:
 - `SA_SIZE`
 - `BUFFER_SIZE`
 - `MAX_FILES`
+- `NO_BEEP`
 
 These become `-D` defines passed to the compiler.
 

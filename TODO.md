@@ -3,45 +3,30 @@
 Items are grouped by complexity and listed in recommended implementation order.
 Each item references the tag used in source comments for easy searching.
 
-## Ready to Implement
+## Optimization pass
+Perform a optimization pass for 2.3 to decrease size of program, and get ready for 
+smaller targets.
 
-### `TODO(jmp-cache)` — Jump cache for `find_line()`
+table look ups could be simplified to only scan 3 - 4 characters like MS basic does
+ - smaller tables, less memory
+can save the program as symbols vs full text, and only display:
+ - comments from offline storage as needed
+ - symbol fulltext from offline storage as needed (LIST, SAVE etc ...)
+ - means a offline program space would be required to define after first numbered line is entered
+   or the system would have to load a blank workspace, like office does and then save
+   would copy from it.
+ - text line buffer stores a number of lines defined by build before cashed to disk
+   - This can be adjuseted in the interperater.
+ - symbols in memory for runtime, offline is plaintext and is converted when loaded.
 
-Needs more design discussion before any code is written.
+ia16 .com vs .exe (CBA which is better or needed?)
+symbol shorthand
+ - '?' for print etc ';' comments 
+ - comments dont require a : to seperate or diliminate when stored this way
+ - line drops in scanner / lexer when encountered.
 
-**Problem:** `find_line()` does a linear scan of the program list on every
-`GOTO`/`GOSUB`. On large programs this is slow, especially in tight loops.
+Look at eliminating line numbers?  CBA (what is the reason they are there, scanning etc...)
 
-**Rough idea:** flat cache of `{ ubint lno, struct line_rec *ptr }` pairs.
-
-Two population strategies under consideration:
-
-**Lazy (runtime):** on cache miss do linear scan as normal, store result. Same
-target pays scan cost once only. Simple, works for interactive use.
-
-**Eager (load/run time):** single pass over all `Ltext` at `LOAD` or `RUN`,
-find every `GOTO`/`GOSUB` token, read line number, pre-populate. Cache fully
-warm before first instruction. Also catches undefined line number errors early.
-Since MICRO-BASIC has no computed GOTOs, static scan covers 100% of targets.
-
-**Combined:** eager seed at load/run time, lazy fill as fallback.
-
-Open questions to resolve before implementing:
-- Eager vs lazy vs combined — which fits the codebase best?
-- Eviction policy when cache is full (oldest? stop caching? error?)
-- Pointer width: `line_rec*` is 2 bytes on ia16, 4/8 on larger targets — cache struct must work on all platforms
-- Invalidation: clear on `NEW`, `LOAD`, or any line edit
-
-Tuning define:
-```c
-#ifdef SMALL_TARGET
-#  define JMP_CACHE_SIZE  16
-#else
-#  define JMP_CACHE_SIZE  128
-#endif
-```
-
----
 
 ## Closed — Won't Fix in 2.x
 

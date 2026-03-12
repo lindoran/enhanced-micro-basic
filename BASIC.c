@@ -248,14 +248,13 @@ static void  do_out(ubint p, ubint v)     { (void)p; (void)v; }
  * INP/OUT -> no-ops (no user-mode port access on protected-mode OS)
  * ----------------------------------------------------------------------- */
 #  include <time.h>
-#  include <alsa/asoundlib.h> 
-#  include "tinybeep.h"
-
-/* BEEP stub: no ALSA available in this build environment */
-static void do_beep(ubint freq, ubint ms)
-{
-    tinybeep(freq, ms);
-}
+#  ifndef NO_BEEP
+#    include <alsa/asoundlib.h>
+#    include "tinybeep.h"
+static void do_beep(ubint freq, ubint ms) { tinybeep(freq, ms); }
+#  else
+static void do_beep(ubint freq, ubint ms) { (void)freq; (void)ms; }
+#  endif
 
 static void do_delay(ubint ms)
 {
@@ -375,6 +374,9 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #  ifndef MAX_FILES
 #    define MAX_FILES      4   /* #0..#3 : enough for CP/M, FLEX, small DOS */
 #  endif
+#  ifndef SEG_SLOTS
+#    define SEG_SLOTS      8   /* [1]..[8] segment cache entries             */
+#  endif
 #else
 #  ifndef BUFFER_SIZE
 #    define BUFFER_SIZE  100
@@ -390,6 +392,9 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #  endif
 #  ifndef MAX_FILES
 #    define MAX_FILES     10   /* #0..#9                                    */
+#  endif
+#  ifndef SEG_SLOTS
+#    define SEG_SLOTS     16   /* [1]..[16] segment cache entries            */
 #  endif
 #endif
 
@@ -431,41 +436,42 @@ static void  do_out(ubint p, ubint v) { (void)p; (void)v; }
 #undef OUT   /* MinGW's windows.h defines OUT as an empty annotation macro */
 #endif
 #define OUT    30
+#define SEG    31
 
 /* Secondary keyword tokens */
-#define TO     31   /* lower bound of keyword range used in is_e_end() */
-#define STEP   32
-#define THEN   33
+#define TO     32   /* lower bound of keyword range used in is_e_end() */
+#define STEP   33
+#define THEN   34
 
 /* Operator / function tokens */
-#define ADD    34   /* lower bound of operator range used in is_e_end() */
-#define SUB    35
-#define MUL    36
-#define DIV    37
-#define MOD    38
-#define AND    39
-#define OR     40
-#define XOR    41
-#define EQ     42
-#define NE     43
-#define LE     44
-#define SHL    45   /* TODO(bitshift): <<  logical left shift               */
-#define LT     46
-#define GE     47
-#define SHR    48   /* TODO(bitshift): >>  logical right shift              */
-#define GT     49
-#define CHR    50
-#define STR    51
-#define ASC    52
-#define ABS    53
-#define NUM    54
-#define RND    55
-#define KEY    56
-#define INP    57
-#define HEX    58   /* HEX$(n) - format bint as uppercase hex string        */
-#define UNS    59   /* UNS$(n) - format bint as unsigned decimal string     */
-#define UGT    60   /* UGT(a,b) - unsigned greater-than, returns 1/0        */
-#define ULT    61   /* ULT(a,b) - unsigned less-than, returns 1/0           */
+#define ADD    35   /* lower bound of operator range used in is_e_end() */
+#define SUB    36
+#define MUL    37
+#define DIV    38
+#define MOD    39
+#define AND    40
+#define OR     41
+#define XOR    42
+#define EQ     43
+#define NE     44
+#define LE     45
+#define SHL    46   /* TODO(bitshift): <<  logical left shift               */
+#define LT     47
+#define GE     48
+#define SHR    49   /* TODO(bitshift): >>  logical right shift              */
+#define GT     50
+#define CHR    51
+#define STR    52
+#define ASC    53
+#define ABS    54
+#define NUM    55
+#define RND    56
+#define KEY    57
+#define INP    58
+#define HEX    59   /* HEX$(n) - format bint as uppercase hex string        */
+#define UNS    60   /* UNS$(n) - format bint as unsigned decimal string     */
+#define UGT    61   /* UGT(a,b) - unsigned greater-than, returns 1/0        */
+#define ULT    62   /* ULT(a,b) - unsigned less-than, returns 1/0           */
 
 /* Pseudo-command: RUN without clearing variables (used by LOAD-in-program) */
 #define RUN1   99
@@ -497,7 +503,7 @@ static const char * const RODATA reserved_words[] = {
     "LET",   "EXIT",  "LIST",  "NEW",   "RUN",   "CLEAR", "GOSUB", "GOTO",
     "RETURN","PRINT", "FOR",   "NEXT",  "IF",    "LIF",   "REM",   "STOP",
     "END",   "INPUT", "OPEN",  "CLOSE", "DIM",   "ORDER", "READ",  "DATA",
-    "SAVE",  "LOAD",  "DELAY", "BEEP",  "DOS",   "OUT",
+    "SAVE",  "LOAD",  "DELAY", "BEEP",  "DOS",   "OUT",   "SEG",
     "TO",    "STEP",  "THEN",
     "+", "-", "*", "/", "%", "&", "|", "^",
     "=", "<>", "<=", "<<", "<", ">=", ">>", ">",
@@ -566,6 +572,11 @@ static char   expr_type;            /* 0 = numeric result, 1 = string       */
 static char   nest;                 /* parenthesis / sub-expression depth   */
 static ubint  line;                 /* current line number                  */
 
+/* Segment cache - [1]..[SEG_SLOTS] map slot index to line pointer.
+ * Declared with SEG [n]=lineno; referenced as [n] in jump targets.
+ * Slots are 1-based; index 0 unused.                                       */
+static struct line_rec *seg_cache[SEG_SLOTS + 1];
+
 /* Control stack.  Entries are either small bint values (step, limit,
  * variable index, frame tag) or data pointers (runptr, cmdptr).
  * bptr is the only type wide enough to hold both on all targets.        */
@@ -632,7 +643,7 @@ static void concat(char *dst, const char *a, const char *b)
 static int is_e_end(tok_t c)
 {
     if (c >= TOKEN(TO) && c < TOKEN(ADD)) return 1;
-    return (c == '\0') || (c == ':') || (c == ')') || (c == ',') || (c == ';');
+    return (c == '\0') || (c == ':') || (c == ')') || (c == ']') || (c == ',') || (c == ';');
 }
 
 /* True at the end of a statement */
@@ -846,10 +857,14 @@ static int edit_program(void)
 
 /* =======================================================================
  * find_line() - locate line by number; error(3) if not found
+ * Checks segment cache first; falls back to linear scan.
  * ======================================================================= */
 static struct line_rec *find_line(ubint lno)
 {
     struct line_rec *p;
+    ubint i;
+    for (i = 1; i <= SEG_SLOTS; i++)
+        if (seg_cache[i] && seg_cache[i]->Lnumber == lno) return seg_cache[i];
     for (p = pgm_start; p; p = p->Llink)
         if (p->Lnumber == lno) return p;
     error(3);
@@ -869,6 +884,21 @@ static struct line_rec *find_line(ubint lno)
 static struct line_rec *resolve_jump(void)
 {
     tok_t c = skip_blank();
+    if (c == '[') {                         /* segment cache reference [n]   */
+        struct line_rec *lp;
+        ubint slot, offset = 0;
+        ++cmdptr;
+        slot = get_num();
+        expect(']');
+        if (slot < 1 || slot > SEG_SLOTS) error(3);
+        lp = seg_cache[slot];
+        if (!lp) error(3);                  /* slot not populated yet        */
+        if (skip_blank() == TOKEN(ADD)) {   /* optional [n]+offset           */
+            ++cmdptr;
+            offset = (ubint)eval_num();
+            while (offset-- && lp) lp = lp->Llink;
+            if (!lp) error(3); }
+        return lp; }
     if (c == TOKEN(ADD)) {
         struct line_rec *lp;
         ubint offset;
@@ -1277,6 +1307,18 @@ newline:
         i = (ubint)eval_num(); expect(',');
         do_out(i, (ubint)eval_num()); break;
 
+    /* ---- SEG [n]=lineno  ------------------------------------------------ */
+    /* Registers a segment cache slot. [n] must be 1..SEG_SLOTS.             */
+    /* When this line executes, the target line is looked up once and cached. */
+    case SEG :
+        expect('[');
+        i = get_num();
+        expect(']');
+        expect(TOKEN(EQ));
+        if (i < 1 || i > SEG_SLOTS) error(3);
+        seg_cache[i] = find_line((ubint)eval_num());
+        break;
+
     /* ---- SAVE ["name"] ------------------------------------------------- */
     case SAVE :
         direct_only();
@@ -1638,9 +1680,11 @@ static void num_string(bint value, char *ptr)
 static void clear_pgm(void)
 {
     struct line_rec *p, *next;
+    ubint i;
     for (p = pgm_start; p; p = next) { next = p->Llink; free(p); }
     pgm_start = NULL;
     pgm_end   = NULL;
+    for (i = 1; i <= SEG_SLOTS; i++) seg_cache[i] = NULL;
 }
 
 static void clear_vars(void)
