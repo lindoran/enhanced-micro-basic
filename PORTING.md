@@ -6,48 +6,260 @@ design spec. Items will be promoted to proper design decisions when 3.0 work beg
 
 ---
 
-## I/O — stdio must go
+## I/O Architecture — Two Layer Design
 
-The remaining stdio dependency after the 2.3 printf elimination:
+The I/O abstraction is split into two layers. `BASIC.c` never touches hardware
+or stdio directly — it only calls `io.h`. This preserves the single source goal:
+`BASIC.c` is identical across all targets.
 
-| Function | Used for | Replacement |
-|---|---|---|
-| `fgets` | interactive input, LOAD from file | serial read / line buffer from HAL |
-| `fputs` / `putc` | all output (PRINT, errors, banner, LIST) | serial write from HAL |
-| `fflush` | flush after PRINT | no-op or HAL flush |
-| `fopen` / `fclose` | LOAD, SAVE, OPEN#n | no filesystem on bare metal — stub or remove |
-| `FILE *` | filein / fileout / files[] | replace with HAL stream handles |
+```
+BASIC.c
+   |
+   v
+io.h          <- interpreter's ceiling; all I/O calls go through here
+   |
+   +-- io_stdio.c    (hosted: Linux / Windows / DOS — wraps stdio.h)
+   |
+   +-- io_avr.c      (bare metal: wraps the BIOS layer below)
+   |      |
+   |      v
+   |   bios.h        <- hardware abstraction for the specific board
+   |      |
+   |      +-- uart.c
+   |      +-- sdcard.c
+   |      +-- display.c
+   |      +-- keyboard.c
+   |
+   +-- io_stub.c     (no-op stub for bringing up a new port)
+```
 
-A serial-only build with no file I/O is the expected first 3.0 configuration.
-`LOAD` and `SAVE` could work via serial (XMODEM or plain text paste) but that
-is a separate feature decision.
-
-`stdin` / `stdout` / `stderr` references in main() also need replacing.
+The Makefile selects the right io_xxx.c per target. The BIOS layer is
+board-specific and reusable beyond just BASIC — other software on the same
+hardware uses the same BIOS. This is the same separation CP/M used: BDOS was
+the OS, BIOS was the hardware-specific part, applications called BDOS only.
 
 ---
 
-## Memory allocation — malloc must go
+## io.h — The Interpreter's I/O Interface
 
-Current model: `allocate()` wraps `calloc()`, called for every string assignment,
-every program line insert, every DIM array. `free()` called on clear/reassign.
+The full set of I/O operations the interpreter needs is small. Every call site
+in BASIC.c is already tagged `HAL(3.0):` — grep for that to find them all.
 
-On bare metal there is no heap. Options:
+```c
+/* io.h - Enhanced Micro-BASIC I/O abstraction layer */
 
-- **Bump allocator** — a fixed block of RAM, pointer advances on alloc, reset on
-  NEW/CLEAR. Simple, fast, no fragmentation tracking. `FRE()` becomes trivial.
-  Downside: no per-string free — need to accept that string RAM is only reclaimed
-  on NEW/CLEAR, not on reassignment.
-- **Fixed workspace** — pre-allocate all variable storage at startup from a
-  statically sized block. No dynamic allocation at all. Most predictable for
-  fixed-RAM targets.
+/* Console output */
+void      io_putc(char c);
+void      io_puts(const char *s);
+void      io_flush(void);                  /* no-op on serial */
 
-The linked list program storage (one `allocate()` per line) is the biggest
-consumer of dynamic allocation. A flat program buffer may be more appropriate
-on a target with known fixed RAM.
+/* Console input */
+int       io_getline(char *buf, int max);  /* returns 0 on EOF/error */
+
+/* File I/O — stub to no-ops on bare metal without filesystem */
+typedef struct io_file IO_FILE;
+IO_FILE  *io_fopen(const char *name, const char *mode);
+void      io_fclose(IO_FILE *fp);
+void      io_fputs(const char *s, IO_FILE *fp);
+void      io_fputc(char c, IO_FILE *fp);
+int       io_fgetline(char *buf, int max, IO_FILE *fp);
+
+/* System */
+void      io_exit(int code);               /* exit() or watchdog reset */
+```
+
+`IO_FILE *` on hosted builds is a thin wrapper around `FILE *`.
+On bare metal without a filesystem all `io_fopen` / `io_fclose` / `io_fgetline`
+calls return NULL / no-op. LOAD and SAVE become serial operations (plain text
+paste or XMODEM) implemented in `io_avr.c`, not the interpreter.
+
+---
+
+## BIOS Layer — Board Specific
+
+The BIOS layer sits below `io_avr.c` and is designed around the specific
+hardware. For an ATmega with a video/keyboard hat this would include:
+
+**UART** — console I/O, serial LOAD/SAVE
+- `uart_tx(char c)` / `uart_rx_ready()` / `uart_rx()`
+- Line buffering for `io_getline`
+- Used as fallback LOAD/SAVE if no SD card present
+
+**SD card** — filesystem for LOAD/SAVE/OPEN
+- SPI driver + FAT library (FatFs is the standard choice for AVR)
+- `io_fopen` / `io_fclose` / `io_fgetline` map to FatFs calls in `io_avr.c`
+- SD presence can be runtime-detected; fall back to serial if absent
+
+**Display** — for video hat
+- Character write to framebuffer maps to `io_putc`
+- If the hat has its own controller (SSD1306, TMS9918, etc.) this is a
+  register write; if it's a direct framebuffer it maps to the protected
+  range array addressing feature (see TODO.md)
+- Scroll, cursor, clear are BIOS concerns — the interpreter just writes chars
+
+**Keyboard** — for keyboard hat
+- Scan code to ASCII translation in the BIOS
+- Non-blocking `kbtst()` for the KEY() function maps to a BIOS ring buffer
+
+**The interpreter never knows which BIOS functions exist.** `io_avr.c` is the
+only file that calls BIOS functions. If the SD card is absent, `io_avr.c`
+routes LOAD/SAVE to UART. BASIC.c sees only `io_fopen()` returning NULL.
+
+---
+
+## Memory — Replacing malloc
+
+Current model: `allocate()` wraps `calloc()`, `free()` called on reassign/clear.
+On bare metal malloc fragmentation is a real problem — see notes below.
+
+### Two-direction heap (recommended for 3.0)
+
+A single fixed RAM block above the static interpreter data. Program lines and
+arrays grow up from the bottom; string content grows down from the top.
+They meet in the middle only on genuine OOM — no fragmentation because neither
+side ever has holes. `FRE()` is one subtraction.
+
+```
++---------------------------+  <- heap_base (just above static data)
+|  program lines            |
+|  DIM arrays               |
+|  vvvvvvvvvvvvvvvvvvvvvvv |  <- heap_lo (grows up)
+|                           |
+|      FREE                 |  FRE() = heap_hi - heap_lo
+|                           |
+|  ^^^^^^^^^^^^^^^^^^^^^^^^^|  <- heap_hi (grows down)
+|  string content           |
++---------------------------+  <- heap_top
+|  stack                    |  <- grows down, fixed size, below heap
++---------------------------+  <- top of RAM
+```
+
+**String reassignment** — old content is orphaned until CLEAR/NEW resets
+`heap_hi` to `heap_top`. This is acceptable for typical BASIC programs.
+The common `A$ = A$ + "x"` case can be optimised: if the old string is the
+most recently allocated (i.e. right at `heap_hi`), reclaim it before
+allocating the new one. Handles the loop case cleanly.
+
+**Program lines** — on a 3.0 target with no interactive editing, the program
+region fills once on LOAD and never fragments. A flat buffer is simpler than
+the current linked list for this use case.
+
+### Banked RAM
+
+On systems with banked RAM (Z80, some AVR + external RAM configurations)
+keep interpreter state, variable tables, and string heap in fixed lower RAM.
+Use the banked window exclusively for program line storage — it's the biggest
+consumer and is accessed sequentially, making bank boundaries manageable.
+
+The segment cache (`SEG [n] = lineno`) is already the right mechanism for
+bank-aware jump resolution. Extend `line_rec` with a bank tag and make
+`runptr` a (bank, offset) pair rather than a flat pointer. Every place that
+dereferences `runptr->Ltext` pages in the correct bank first — that's the
+only change needed in the interpreter. The rest lives in `io_avr.c` / BIOS.
 
 ---
 
 ## Variable set sizing
+
+Full set (260 numeric + 260 string + 260 array) costs:
+- `num_vars[260]`  — 520 bytes (int16_t)
+- `char_vars[260]` — 520 bytes (pointers, 16-bit on AVR)
+- `dim_vars[260]`  — 520 bytes (pointers)
+- `dim_check[260]` — 520 bytes (ubint)
+- Total: ~2080 bytes just for variable tables, before any string or array content
+
+On an ATmega2560 (8K RAM) this is a significant fraction. SMALL_TARGET halves
+the set to 130 vars (~1040 bytes). A minimal set (52 vars, A0-Z1) costs ~416 bytes.
+Actual choice depends on RAM budget after program storage and stack are accounted for.
+
+---
+
+## Control stack
+
+`ctl_stk[CTL_DEPTH]` where each entry is `bptr` (pointer-width).
+On AVR `bptr` should be `uint16_t` (flat 64K address space).
+CTL_DEPTH=24 (SMALL_TARGET) costs 48 bytes at 16-bit — acceptable.
+
+---
+
+## RNG
+
+`rand()` / `srand()` not available. Replace with XOR-shift generator.
+`time(NULL)` not available for seeding — use a hardware timer tick,
+an ADC noise reading, or a fixed seed with a user-settable seed statement.
+See `TODO: XOR SHIFT` comment in `get_value()` / `main()`.
+
+---
+
+## String accumulators
+
+`sa1[SA_SIZE]` and `sa2[SA_SIZE]` are static globals — fine on bare metal,
+no dynamic allocation. SA_SIZE should be tuned to the target's RAM budget.
+Minimum useful value is probably 32-40 bytes for typical embedded string use.
+SA_SIZE >= BUFFER_SIZE is enforced at compile time.
+
+---
+
+## Input line buffer
+
+`buffer[BUFFER_SIZE]` — static global, fine. BUFFER_SIZE=80 is comfortable
+on a 40-column terminal; could drop to 64 or lower on a constrained target.
+This also sets the maximum program line length.
+
+---
+
+## RODATA / flash strings
+
+The `RODATA` / `RD_BYTE` / `RD_PTR` abstraction layer is already in place for
+AVR PROGMEM. `reserved_words[]` and `error_messages[]` are declared `const` and
+will land in flash automatically with AVR-GCC and `PROGMEM` annotation.
+This is already wired — just needs `-DAVR_PROGMEM` at build time.
+
+---
+
+## HAL functions (existing — in BASIC.c platform block)
+
+These are already isolated behind the platform HAL block in BASIC.c:
+
+| Function | Current (DOS/Linux) | Bare metal need |
+|---|---|---|
+| `do_beep(freq, ms)` | PC speaker / ALSA | PWM tone on a timer |
+| `do_delay(ms)` | `nanosleep` / BIOS tick | `_delay_ms()` or timer |
+| `kbtst()` | termios non-blocking read | UART RX non-blocking |
+| `do_in(port)` / `do_out(port, val)` | no-op (Linux/Win) | AVR `_SFR_IO8` or direct port |
+
+On bare metal `kbtst()` reads from the BIOS keyboard ring buffer.
+`do_beep` maps to BIOS PWM. `do_delay` maps to BIOS timer.
+
+---
+
+## Source call sites to convert (HAL(3.0) tags)
+
+All remaining stdio call sites in BASIC.c are tagged `/* HAL(3.0): ... */`.
+Run `grep HAL BASIC.c` to get the full list. Converting them means replacing
+the stdio call with the corresponding `io.h` function.
+
+---
+
+## Build flag summary for 3.0
+
+```
+-DSMALL_TARGET          base tuning (NUM_VAR=130, CTL_DEPTH=24, SA_SIZE=80, MAX_FILES=4)
+-DAVR_PROGMEM           enable PROGMEM for string tables (AVR only)
+-DNO_BEEP               disable BEEP if no PWM available
+-DNUM_VAR=52            minimal variable set if RAM is very tight
+-DSA_SIZE=40            tighter string accumulator for very small RAM
+```
+
+---
+
+## What 3.0 is NOT
+
+- Not a bolt-on to the 2.x codebase
+- Not just adding `#ifdef AVR` around things
+- 2.x is feature-stable; 3.0 starts from the hardware and works backward
+- The BIOS layer is a separate project — design it for the specific board,
+  not for BASIC specifically; other software should be able to use it too
 
 Full set (260 numeric + 260 string + 260 array) costs:
 - `num_vars[260]`  — 520 bytes (int16_t)
