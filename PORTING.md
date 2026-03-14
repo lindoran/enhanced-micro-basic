@@ -107,7 +107,108 @@ routes LOAD/SAVE to UART. BASIC.c sees only `io_fopen()` returning NULL.
 
 ---
 
-## Memory — Replacing malloc
+## Layer Contracts
+
+Each boundary in the stack has a contract — what the upper layer expects,
+what the lower layer promises, and what neither side should assume about the
+other. These are capability agreements, not function signatures. The actual
+function names come later; get the contract right first.
+
+The initial `io_stdio.c` implementation is valuable precisely because writing
+it forces these contracts to become concrete. Any place you reach for something
+stdio provides that `io.h` doesn't define yet is a gap in the contract.
+
+---
+
+### BASIC ↔ IO
+
+**BASIC expects IO to provide:**
+- A way to send a character or string to the console
+- A way to read a complete line of input from the console
+- A way to open a named stream for reading or writing (may return failure)
+- A way to read a line or write a character to an open stream
+- A way to close a stream
+- A way to flush pending output
+- A way to terminate the interpreter cleanly
+
+**IO promises BASIC:**
+- Console output will not silently drop characters
+- A failed open returns a clear failure value, never a broken handle
+- Reading from a closed or failed stream returns a defined empty/error result,
+  never undefined data
+- Flush is always safe to call, even if it is a no-op on the target
+- Exit is always safe to call — on bare metal this means reset or halt,
+  never a crash
+
+**Neither side assumes:**
+- BASIC does not assume a filesystem exists — it checks the return value of open
+- BASIC does not assume the console is a terminal — it never sends escape codes
+  or cursor control directly; that is IO's concern if the target supports it
+- IO does not assume BASIC will close every stream it opens — targets must
+  handle cleanup on exit/reset without relying on BASIC to be tidy
+- IO does not assume unbounded line length — it is always given a buffer and
+  a max size and must respect both
+
+---
+
+### IO ↔ BIOS
+
+**IO expects BIOS to provide:**
+- A way to transmit a single character (blocking acceptable)
+- A way to test whether an input character is waiting (non-blocking)
+- A way to receive a single character (blocking)
+- A way to read and write named storage if the target has it (SD, flash, etc.)
+- A way to detect whether storage is present at runtime
+- A timer tick or delay primitive
+- A hardware tone primitive if BEEP is supported
+
+**BIOS promises IO:**
+- Character tx will not silently drop data under normal operation
+- The ready/receive pair is consistent — if ready returns true, receive
+  will return a character without blocking
+- Storage open/read/write/close form a matched set; a failed open means
+  subsequent read/write calls will not be made on that handle
+- Storage presence detection is reliable at the time of the call — BIOS
+  does not promise the card stays present after detection
+- Delay is at least as long as requested; may be longer on coarse-grained
+  timers, never shorter
+
+**Neither side assumes:**
+- IO does not assume storage is always present — it detects at runtime and
+  falls back to serial gracefully
+- IO does not assume a specific storage interface — BIOS abstracts SD, flash,
+  or anything else behind the same read/write/open/close calls
+- BIOS does not assume IO will handle partial reads — it delivers complete
+  lines or clearly indicates a short read
+- BIOS does not assume a specific baud rate or terminal type — character I/O
+  is raw bytes; framing and encoding are IO's concern
+- BIOS does not assume it knows the difference between console and file streams
+  — that distinction belongs to IO
+
+---
+
+### BIOS ↔ Hardware
+
+**BIOS expects hardware to provide:**
+- Behaviour consistent with the datasheet
+- Stable power before init is called
+- Defined reset state at startup
+
+**BIOS promises IO:**
+- All hardware is initialised before any BIOS function is called by IO
+- Failures that can be detected (no SD card, UART framing error) are
+  reported cleanly rather than returning garbage
+- Hardware that is absent or unsupported returns a defined not-present
+  result, not a hang
+
+**Neither side assumes:**
+- BIOS does not assume peripherals are always present — it probes and reports
+- BIOS does not assume a specific clock speed — timing-sensitive code uses
+  the actual F_CPU value, not a hardcoded constant
+- Hardware does not need to know anything about BASIC, IO, or the layers
+  above — BIOS is the only thing that touches registers directly
+
+---
 
 Current model: `allocate()` wraps `calloc()`, `free()` called on reassign/clear.
 On bare metal malloc fragmentation is a real problem — see notes below.
