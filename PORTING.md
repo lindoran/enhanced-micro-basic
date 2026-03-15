@@ -210,8 +210,105 @@ stdio provides that `io.h` doesn't define yet is a gap in the contract.
 
 ---
 
-Current model: `allocate()` wraps `calloc()`, `free()` called on reassign/clear.
-On bare metal malloc fragmentation is a real problem — see notes below.
+## Workspace Model — The Fundamental Principle
+
+This is the most important architectural decision for 3.0 and it must be
+stated clearly so the interpreter is never written to violate it.
+
+**BASIC sees exactly one thing: a flat array with a size.**
+
+```c
+/* Everything BASIC knows about its memory world */
+extern uint8_t  *basic_workspace;
+extern uint16_t  basic_workspace_size;
+```
+
+`io.h` provides these two symbols before `main()` runs. That is all.
+
+BASIC does not know and must never assume:
+- Whether the array is in internal RAM or external RAM
+- Whether it is banked, paged, or flat
+- What the physical address is
+- What the linker script looks like
+- Whether malloc exists on the target
+- How much RAM the target has in total
+
+All memory topology decisions live in `io.h` and the BIOS layer:
+
+```
+io_stdio.c (hosted):
+    static uint8_t _workspace[WORKSPACE_SIZE];
+    uint8_t  *basic_workspace      = _workspace;
+    uint16_t  basic_workspace_size = WORKSPACE_SIZE;
+
+io_avr.c (bare metal, internal RAM):
+    /* BIOS has already reserved this block */
+    uint8_t  *basic_workspace      = bios_workspace_ptr();
+    uint16_t  basic_workspace_size = bios_workspace_size();
+
+io_avr.c (bare metal, banked external RAM):
+    /* BIOS manages bank switching; hands BASIC a window */
+    uint8_t  *basic_workspace      = bios_workspace_ptr();
+    uint16_t  basic_workspace_size = bios_workspace_size();
+```
+
+From BASIC's perspective these three cases are identical. The banking
+logic, the linker script, the external RAM initialisation — none of that
+is BASIC's problem. BASIC just uses the array it was given.
+
+### Two regions within the workspace
+
+Within that flat array BASIC manages two regions itself using the
+two-direction heap model. This is an internal BASIC concern — io.h does
+not need to know about it:
+
+```
+basic_workspace[0]                    basic_workspace[size-1]
+|                                                            |
++------------------------------------------------------------+
+|  program store + DIM arrays  -->         <-- string heap  |
+|  heap_lo (grows up)               heap_hi (grows down)    |
++------------------------------------------------------------+
+         |                                  |
+         +------------ FREE ----------------+
+                  FRE() = heap_hi - heap_lo
+```
+
+### What io.h must guarantee about the workspace
+
+These are the workspace-specific additions to the IO↔BASIC contract:
+
+- `basic_workspace` is valid and writeable before any interpreter function
+  is called
+- `basic_workspace_size` accurately reflects the number of bytes available
+- The workspace does not overlap with the interpreter's own static data
+  (control stack, variable tables, string accumulators, input buffer)
+- The workspace does not overlap with the stack
+- On banked targets: the workspace pointer is valid for the lifetime of
+  the interpreter — if banking is in use, io.h/BIOS manages the bank
+  state transparently so BASIC always sees a consistent flat window
+
+### Interpreter private RAM is separate
+
+The interpreter's own static data — control stack, variable pointer tables,
+string accumulators `sa1`/`sa2`, input `buffer[]`, `filename[]` — is NOT
+part of the workspace. It lives in normal `.bss` / `.data` and is sized
+entirely by build flags. The programmer never sees it and `FRE()` does not
+count it.
+
+This means the total RAM budget for a target is:
+
+```
+total RAM = interpreter static overhead + basic_workspace_size + stack
+```
+
+The interpreter static overhead is calculable at build time from the build
+flags. Document it per target so the programmer knows honestly how much
+of the chip's RAM `basic_workspace_size` can actually be.
+
+---
+
+## Memory — No malloc
 
 ### Two-direction heap (recommended for 3.0)
 
